@@ -91,3 +91,105 @@ Vehicle: id, route_id, location, occupancy, status
 Route: id, name, stops, schedule, vehicles
 Reservation: id, user_id, vehicle_id, trip_time, status
 ```
+## 9. Security & Privacy
+- Encrypted communication (TLS/SSL).
+- Role-based access (User, Driver, Admin).
+- Minimal data storage (no sensitive personal data).
+- Cloud IAM policies.
+
+## 10. Deployment and Operations
+- Cloud provider: AWS/Azure/GCP.
+- CI/CD pipeline: GitHub Actions + Cloud deploy.
+- Monitoring: CloudWatch/Stackdriver.
+- Auto-scaling based on traffic.
+
+## 11. Acceptance Criteria
+- Users can track shuttles in real-time with ≤2s delay.
+- Seat availability updates accurately.
+- Driver app syncs GPS + occupancy reliably.
+- Admin dashboard reflects live status.
+- ≥80% positive feedback in testing survey.
+
+## 12. Testing Plan
+- Unit testing (backend APIs, mobile components).
+- Integration testing (apps + backend).
+- Load testing (simulate 500 users).
+- Security testing (auth, data access).
+- UAT (pilot with IISc students).
+
+## 13. Milestones & Task Allocation
+
+The following timeline ensures all four team members contribute consistently across all weeks while maintaining clear ownership of subsystems. Each milestone builds on the previous one, aligning with the acceptance criteria and testing plan.
+
+---
+
+### **Fri 12 Sep – Proposal Presentation**
+- **All Members:** Prepare slides, present PRD, architecture, and roles.  
+
+---
+
+### **Fri 19 Sep – Backend + DB Setup**
+- **Member 1 (Backend Lead):** Set up database schema, APIs.  
+- **Member 2 (User App Lead):** Build mock UI screens, connect to dummy APIs.  
+- **Member 3 (Driver App Lead):** Implement GPS mock tracking & seat update prototype.  
+- **Member 4 (Admin & QA Lead):** Set up repo structure, CI/CD pipeline, initial testing framework.  
+
+---
+
+### **Fri 26 Sep – User App MVP (Tracking + Routes)**
+- **Member 1:** Ensure backend supports live route queries + WebSockets.  
+- **Member 2:** Implement real-time map & route viewer in user app.  
+- **Member 3:** Start integrating driver GPS push to backend for real data.  
+- **Member 4:** Test route display end-to-end, create test cases for user app.  
+
+---
+
+### **Fri 3 Oct – Driver App MVP (GPS + Seat Updates)**
+- **Member 1:** Backend endpoints for GPS + seat occupancy.  
+- **Member 2:** Consume occupancy data in user app.  
+- **Member 3:** Build driver UI for GPS sharing + seat management.  
+- **Member 4:** QA testing of GPS + occupancy workflows, logging bugs.  
+
+---
+
+### **Fri 10 Oct – Midterm Review (67% Features Complete)**
+- **Member 1:** Backend stable, tested APIs.  
+- **Member 2:** User app tracking + routes live.  
+- **Member 3:** Driver app GPS + seat updates functional.  
+- **Member 4:** Admin portal wireframe ready + midterm testing report.  
+- **All Members:** Prepare and deliver review presentation.  
+
+---
+
+### **Fri 17 Oct – Admin Portal MVP**
+- **Member 1:** Backend APIs for dashboard & reports.  
+- **Member 2:** Add notifications module to user app.  
+- **Member 3:** Add trip management to driver app.  
+- **Member 4:** Build admin dashboard UI (routes, schedules).  
+
+---
+
+### **Fri 24 Oct – Notifications & Reservations**
+- **Member 1:** Implement push notifications service.  
+- **Member 2:** User app reservation workflow + QR code boarding.  
+- **Member 3:** Driver app integrates reservation validation.  
+- **Member 4:** Admin portal adds analytics & reporting; QA reservations.  
+
+---
+
+### **Fri 31 Oct – System Integration & Cloud Deployment**
+- **Member 1:** Deploy backend + DB to cloud.  
+- **Member 2:** Deploy user app beta build.  
+- **Member 3:** Deploy driver app beta build.  
+- **Member 4:** Deploy admin portal + run system integration tests.  
+
+---
+
+### **Fri 7 Nov – Final Submission**
+- **Member 1:** Monitor backend performance + cloud scaling.  
+- **Member 2:** Final polish of user app + bug fixes.  
+- **Member 3:** Final polish of driver app + bug fixes.  
+- **Member 4:** Final testing, prepare documentation, package submission.  
+- **All Members:** Deliver final demo & report.  
+
+
