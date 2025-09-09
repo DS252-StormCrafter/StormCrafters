@@ -6,7 +6,7 @@ Part of **DS252: Introduction to Cloud Computing (Aug 2025).**
 ---
 
 ## 🚍 Features
-- Live shuttle tracking (GPS updates every 10s).
+- Live shuttle tracking (GPS updates every 2s).
 - Route maps, stops, and 20-min schedule display.
 - Real-time seat availability (max 4 seats/vehicle).
 - Driver app for GPS & occupancy management.
