@@ -46,3 +46,15 @@ The system follows a **client-server model** with a **cloud-based backend** prov
  ├─────────────┤        │ (Cloud Fn)  │
  │ Admin Portal│◀──────▶│             │──▶ Maps API, Notifications
  └─────────────┘        └─────────────┘
+```
+## Data Flow
+1. Driver app pushes GPS + seat data → backend → DB.
+2. User app fetches real-time updates via WebSockets.
+3. Admin portal queries backend for live dashboards.
+4. Notifications triggered on events (delays, full capacity).
+
+## Deployment
+- Backend: AWS Lambda / GCP Functions.
+- Database: Firestore/Firebase.
+- Hosting: Cloud (web apps), App Stores (mobile).
+- CI/CD: GitHub Actions → Cloud Deploy.
