@@ -29,15 +29,43 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 - **Sponsor:** IISc Administration.
 
 ---
+## 4. User Stories
 
-## 4. Assumptions
+### Users
+- As a **student**, I want to see the **next shuttle arrival time**, so I can plan my commute efficiently.  
+- As a **staff member**, I want to check **seat availability in real-time**, so I know whether I can board.  
+- As a **visitor**, I want to **register and sign in easily**, so I can use the service without institutional credentials.  
+
+**Acceptance Criteria:**  
+- Given valid login, when I open the app, then I should see all shuttle lines with next-arrival times (<20 min).  
+- Given a shuttle is full, when I open the seat info, then I should see a “Full” status.  
+- Given an unregistered visitor, when they sign up, then the app must validate phone/email and allow access.  
+
+### Drivers
+- As a **driver**, I want to **update seat occupancy quickly**, so passengers always see accurate seat counts.  
+- As a **driver**, I want my GPS location to be **shared automatically**, so I don’t need to update it manually.  
+
+**Acceptance Criteria:**  
+- Given I start a trip, when I press "Start", then my GPS must update the backend every ≤10s.  
+- Given passengers board, when I press “+1”, then occupancy must increase immediately for users.  
+
+### Admins
+- As an **admin**, I want to **send service alerts (delays, route changes)** to users instantly, so they stay informed.  
+- As an **admin**, I want to **view shuttle usage reports**, so I can optimize schedules and resources.  
+
+**Acceptance Criteria:**  
+- Given an emergency, when admin posts an alert, then users and drivers should receive a push notification within 5s.  
+- Given the analytics dashboard, when I select a date range, then I must see usage stats for all routes.  
+
+---
+## 5. Assumptions
 - Shuttle fleet limited (~6 routes, 4 seats per vehicle).
 - Users will have smartphones with internet access.
 - IISc network allows GPS + cloud communication.
 
 ---
 
-## 5. Functional Requirements
+## 6. Functional Requirements
 ### User App
 - Registration/authentication (OAuth2, SSO, or JWT).
 - Real-time vehicle tracking (updates ≤ 10s).
@@ -62,7 +90,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 ---
 
-## 6. Non-Functional Requirements
+## 7. Non-Functional Requirements
 - **Scalability:** 500+ concurrent users.
 - **Reliability:** 99.9% uptime.
 - **Performance:** <2s latency for location/seat updates.
@@ -72,7 +100,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 ---
 
-## 7. Proposed Architecture
+## 8. Proposed Architecture
 - **Client apps:** React Native/Flutter (mobile), React (web).
 - **Backend:** Serverless (AWS Lambda/Google Cloud Functions).
 - **Database:** Firestore/Firebase Realtime DB (NoSQL).
@@ -83,7 +111,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 ---
 
-## 8. Data Model (Sample)
+## 9. Data Model (Sample)
 ```plaintext
 User: id, name, email, role, reservations
 Driver: id, name, vehicle_id, location, occupancy
@@ -91,33 +119,33 @@ Vehicle: id, route_id, location, occupancy, status
 Route: id, name, stops, schedule, vehicles
 Reservation: id, user_id, vehicle_id, trip_time, status
 ```
-## 9. Security & Privacy
+## 10. Security & Privacy
 - Encrypted communication (TLS/SSL).
 - Role-based access (User, Driver, Admin).
 - Minimal data storage (no sensitive personal data).
 - Cloud IAM policies.
 
-## 10. Deployment and Operations
+## 11. Deployment and Operations
 - Cloud provider: AWS/Azure/GCP.
 - CI/CD pipeline: GitHub Actions + Cloud deploy.
 - Monitoring: CloudWatch/Stackdriver.
 - Auto-scaling based on traffic.
 
-## 11. Acceptance Criteria
+## 12. Acceptance Criteria
 - Users can track shuttles in real-time with ≤2s delay.
 - Seat availability updates accurately.
 - Driver app syncs GPS + occupancy reliably.
 - Admin dashboard reflects live status.
 - ≥80% positive feedback in testing survey.
 
-## 12. Testing Plan
+## 13. Testing Plan
 - Unit testing (backend APIs, mobile components).
 - Integration testing (apps + backend).
 - Load testing (simulate 500 users).
 - Security testing (auth, data access).
 - UAT (pilot with IISc students).
 
-## 13. Milestones & Task Allocation
+## 14. Milestones & Task Allocation
 
 The following timeline ensures all four team members contribute consistently across all weeks while maintaining clear ownership of subsystems. Each milestone builds on the previous one, aligning with the acceptance criteria and testing plan.
 
