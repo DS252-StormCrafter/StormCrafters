@@ -70,7 +70,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 - Registration/authentication (OAuth2, SSO, or JWT).
 - Automatic access if connected via IIScWLAN, Eduroam, or IISc VPN (no login page required).
 - Real-time vehicle tracking (updates ≤ 5s).
-- Route info: maps, stops, schedule (20-min frequency).
+- Route info: maps, routes,, schedule (20-min frequency).
 - Seat availability (4 max).
 - Notifications: arrival, delays, service changes.
 - Post-ride feedback collection (ratings, comments).
@@ -107,7 +107,6 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 - **Database:** Firestore/Firebase Realtime DB (NoSQL, MongoDB).
 - **Realtime sync:** WebSockets / Firebase RTDB.
 - **Maps:** Google Maps API.
-- **Notifications:** Firebase Cloud Messaging.
 - **Auth:** OAuth2 / SSO.
 
 ---
