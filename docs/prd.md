@@ -8,7 +8,7 @@
 ## 1. Purpose
 To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, enabling:
 - Students, staff, and faculty to access **real-time shuttle tracking, seat availability, and route schedules**.
-- Drivers to update GPS locations and seat occupancy.
+- Drivers to share GPS locations and update seat occupancy.
 - Administrators to manage routes, vehicles, and system performance via a web portal.
 
 ---
