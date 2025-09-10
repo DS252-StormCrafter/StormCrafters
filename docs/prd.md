@@ -178,8 +178,8 @@ Route: id, name, stops, schedule, vehicles
 
 ### **Fri 10 Oct – Midterm Review (67% Features Complete)**
 - **Member 1:** Backend stable, APIs functional.
-- **Member 2:** User app MVP (tracking + routes).
-- **Member 3:** Driver app MVP (GPS + occupancy).
+- **Member 2:** User login MVP (tracking + routes).
+- **Member 3:** Driver login MVP (GPS + occupancy).
 - **Member 4:** Admin portal wireframe, midterm testing report.
 - **All Members:** Midterm presentation & demo.
 
@@ -187,8 +187,8 @@ Route: id, name, stops, schedule, vehicles
 
 ### **Fri 17 Oct – Admin Portal MVP**
 - **Member 1:** Backend APIs for dashboard & reports.
-- **Member 2:** Notifications module (arrival/delay alerts) in user app.
-- **Member 3:** Trip management controls in driver app.
+- **Member 2:** Notifications module (arrival/delay alerts) in user login.
+- **Member 3:** Trip management controls in driver login.
 - **Member 4:** Admin dashboard (routes, occupancy, driver activity monitor).
 
 ---
@@ -196,15 +196,15 @@ Route: id, name, stops, schedule, vehicles
 ### **Fri 24 Oct – Notifications & Reservations**
 - **Member 1:** Push notifications backend.
 - **Member 2:** User app reservation workflow + feedback screen (ratings, comments).
-- **Member 3:** Reservation validation in driver app.
+- **Member 3:** Reservation validation in driver login.
 - **Member 4:** Analytics & reporting in admin portal; QA feedback flow.
 
 ---
 
 ### **Fri 31 Oct – System Integration & Cloud Deployment**
 - **Member 1:** Deploy backend + DB to cloud.
-- **Member 2:** Deploy beta user app build.
-- **Member 3:** Deploy beta driver app build.
+- **Member 2:** Deploy beta user login build.
+- **Member 3:** Deploy beta driver login build.
 - **Member 4:** Deploy admin portal, run integration testing.
 - **All Members:** Cross-app end-to-end testing.
 
@@ -212,8 +212,8 @@ Route: id, name, stops, schedule, vehicles
 
 ### **Fri 7 Nov – Final Submission**
 - **Member 1:** Backend monitoring, auto-scaling validation.
-- **Member 2:** Final polish of user app + bug fixes.
-- **Member 3:** Final polish of driver app + bug fixes.
+- **Member 2:** Final polish of user login + bug fixes.
+- **Member 3:** Final polish of driver login + bug fixes.
 - **Member 4:** QA sign-off, documentation, final submission package.
 - **All Members:** Final demo & report submission.
   
