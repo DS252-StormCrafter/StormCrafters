@@ -113,9 +113,8 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 ## 9. Data Model (Sample)
 ```plaintext
-User: id, name, email, role, reservations
-Driver: name, vehicle_id, location, occupancy
-Vehicle: id, route_id, location, occupancy, status
+User: id, name, email
+Vehicle: id, vehicle_id, route_id, location, occupancy, status
 Route: id, name, stops, schedule, vehicles
 ```
 ## 10. Security & Privacy
