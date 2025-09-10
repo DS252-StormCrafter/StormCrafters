@@ -33,7 +33,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 ### Users
 - As a **student**, I want to see the **next shuttle arrival time**, so I can plan my commute efficiently.  
 - As a **staff member**, I want to check **seat availability in real-time**, so I know whether I can board.  
-- As a **visitor**, I want to **register and sign in easily**, so I can use the service without institutional credentials.  
+- As a **visitor**, I want to **register and sign in easily**, so I can use the service without IISc credentials.  
 
 **Acceptance Criteria:**  
 - Given valid login, when I open the app, then I should see all shuttle lines with next-arrival times (<20 min).  
