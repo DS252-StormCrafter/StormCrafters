@@ -46,7 +46,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 **Acceptance Criteria:**  
 - Given I start a trip, when I press "Start", then my GPS must update the backend every ≤ 5s.  
-- Given passengers board, when I press “+1”, then occupancy must increase immediately for users.
+- Given passengers board, when I press “+1” or “-1”, then occupancy must increase immediately for users.
 -  
 ### Admins  
 - As an **admin**, I want to **view shuttle usage reports**, so I can optimize schedules and resources.  
