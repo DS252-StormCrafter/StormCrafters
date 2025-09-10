@@ -68,7 +68,8 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 ## 6. Functional Requirements
 ### App (User login)
 - Registration/authentication (OAuth2, SSO, or JWT).
-- Real-time vehicle tracking (updates ≤ 5s.
+- Automatic access if connected via IIScWLAN, Eduroam, or IISc VPN (no login page required).
+- Real-time vehicle tracking (updates ≤ 5s).
 - Route info: maps, stops, schedule (20-min frequency).
 - Seat availability (4 max).
 - Notifications: arrival, delays, service changes.
@@ -128,7 +129,7 @@ Route: id, name, stops, schedule, vehicles
 - Cloud provider: AWS/Azure/GCP.
 - CI/CD pipeline: GitHub Actions + Cloud deploy.
 - Monitoring: CloudWatch/Stackdriver.
-- Auto-scaling based on traffic.
+- Network-based trust: devices on IIScWLAN, Eduroam, or IISc VPN may auto-authenticate without login.
 
 ## 12. Acceptance Criteria
 - Users can track shuttles in real-time with ≤5s delay.
