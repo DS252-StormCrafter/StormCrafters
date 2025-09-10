@@ -37,17 +37,10 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 **Acceptance Criteria:**  
 - Given valid login, when I open the app, then I should see all shuttle lines with next-arrival times (<20 min).  
-- When I open the seat info, then I should see the occupancy of the transvahan.  
+- When I open the seat info, then I should see the **current occupancy in real-time**, updated immediately as passengers board or leave.  
 - Given an unregistered visitor, when they sign up, then the app must validate phone/email and allow access.  
-
-### Drivers
-- As a **driver**, I want to **update seat occupancy quickly**, so passengers always see accurate seat counts.  
-- As a **driver**, I want my GPS location to be **shared automatically** during the ride, so I don’t need to update it manually.  
-
-**Acceptance Criteria:**  
-- Given I start a trip, when I press "Start", then my GPS must update the backend every ≤ 5s.  
-- Given passengers board, when I press “+1” or “-1”, then occupancy must increase immediately for users.
--  
+- Given a shuttle trip is ongoing, then the driver’s GPS must update the backend every ≤ 5s automatically.  
+  
 ### Admins  
 - As an **admin**, I want to **view shuttle usage reports**, so I can optimize schedules and resources.  
 - As an **admin**, I want to **monitor driver activities** (logins, trips, seat updates, GPS status), so I can ensure compliance and service reliability.  
