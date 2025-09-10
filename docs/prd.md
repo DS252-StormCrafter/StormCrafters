@@ -37,7 +37,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 **Acceptance Criteria:**  
 - Given valid login, when I open the app, then I should see all shuttle lines with next-arrival times (<20 min).  
-- Given a shuttle is full, when I open the seat info, then I should see a “Full” status.  
+- When I open the seat info, then I should see the occupancy of the transvahan.  
 - Given an unregistered visitor, when they sign up, then the app must validate phone/email and allow access.  
 
 ### Drivers
