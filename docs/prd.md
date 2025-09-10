@@ -42,7 +42,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 ### Drivers
 - As a **driver**, I want to **update seat occupancy quickly**, so passengers always see accurate seat counts.  
-- As a **driver**, I want my GPS location to be **shared automatically**, so I don’t need to update it manually.  
+- As a **driver**, I want my GPS location to be **shared automatically** during the ride, so I don’t need to update it manually.  
 
 **Acceptance Criteria:**  
 - Given I start a trip, when I press "Start", then my GPS must update the backend every ≤ 5s.  
