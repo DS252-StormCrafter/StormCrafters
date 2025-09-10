@@ -37,7 +37,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 **Acceptance Criteria:**  
 - Given valid login, when I open the app, then I should see all shuttle lines with next-arrival times (<20 min).  
-- When I open the seat info, then I should see the **current occupancy in real-time**, updated immediately as passengers board or leave.  
+- When I open the seat info, then I should see the **vacant seat count in real-time**, updated immediately as passengers board or leave.  
 - Given an unregistered visitor, when they sign up, then the app must validate phone/email and allow access.  
 - Given a shuttle trip is ongoing, then the driver’s GPS must update the backend every ≤ 5s automatically.  
   
