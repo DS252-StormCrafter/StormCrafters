@@ -66,28 +66,28 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 ---
 
 ## 6. Functional Requirements
-### App (User login)
-- Registration/authentication (OAuth2, SSO, or JWT).
-- Automatic access if connected via IIScWLAN, Eduroam, or IISc VPN (no login page required).
-- Real-time vehicle tracking (updates ≤ 5s).
-- Route info: maps, routes,, schedule (20-min frequency).
-- Seat availability (4 max).
-- Notifications: arrival, delays, service changes.
-- Post-ride feedback collection (ratings, comments).
+### Unified App (Role-Based)
+- **Authentication:** Single login (OAuth2, SSO, JWT). User profile contains **role = user/driver**.  
+- **Users (default role):**
+  - Real-time shuttle tracking (≤5s update).  
+  - Accurate vacant seat count (calculated as `vehicle.capacity - occupancy`).  
+  - Route info: maps, stops, schedules.  
+  - Notifications: arrival alerts, delays, service changes.  
+  - Post-ride feedback (ratings, comments).  
 
-### App (Driver login)
-- Secure login.
-- Continuous GPS sharing.
-- Update seat occupancy.
-- Route selection & trip start/stop.
-- Receive admin alerts.
+- **Drivers (role = driver):**
+  - Secure login.  
+  - Continuous GPS sharing (≤5s).  
+  - Seat occupancy update buttons (+1 / –1).  
+  - Route selection & trip start/stop.  
+  - Admin alerts (maintenance, route changes).
 
 ### Admin Portal
-- Dashboard: vehicles, occupancy, schedules.
-- Real-time maps.
-- Reports: usage, peak times, maintenance logs.
-- Manage users, drivers, routes, schedules.
-- Send system notifications.
+- Dashboard: vehicles, seat availability, schedules.  
+- Real-time maps.  
+- Reports: usage, peak times, maintenance logs.  
+- Manage users, drivers, routes, schedules.  
+- Send system notifications. 
 
 ---
 
