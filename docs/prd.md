@@ -92,7 +92,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 ---
 
 ## 7. Non-Functional Requirements
-- **Scalability:** 500+ concurrent users.
+- **Scalability:** 500 (approx.) concurrent users .
 - **Reliability:** 99.9% uptime during operational hours (Mon–Sat, 9 am–7 pm).
 - **Performance:** <5s latency for location/seat updates.
 - **Security:** TLS encryption, GDPR compliance.
