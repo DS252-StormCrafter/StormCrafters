@@ -54,7 +54,7 @@ To provide a **cloud-based platform** for IISc’s Transvahan shuttle service, e
 
 **Acceptance Criteria:**  
 - Given the analytics dashboard, when I select a date range, then I must see usage stats for all routes.  
-- Given the driver monitoring panel, when I select a driver, then I must see their recent activities (login history, trip records, seat updates, GPS sharing status).  
+- Given the vehicle monitoring panel, when I select a vehicle, then I must see their recent activities (login history, trip records, seat updates, GPS sharing status).  
 
 
 ---
