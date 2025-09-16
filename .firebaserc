@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "transvahan-staging",
+    "prod": "transvahan-prod"
+  }
+}
