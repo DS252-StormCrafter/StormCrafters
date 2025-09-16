@@ -1,0 +1,18 @@
+{
+  "name": "transvahan-db-scripts",
+  "version": "1.0.0",
+  "description": "Scripts for managing and seeding the Transvahan Firebase database.",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint db/scripts/*.js",
+    "seed:firestore": "node db/scripts/seed_firestore.js",
+    "seed:rtdb": "node db/scripts/seed_rtdb.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.1.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "firebase-tools": "^13.11.2"
+  }
+}
