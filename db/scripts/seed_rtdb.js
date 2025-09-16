@@ -6,7 +6,7 @@ import fs from "fs";
 // Init Firebase Admin
 const app = initializeApp({
   credential: applicationDefault(),
-  databaseURL: "http://127.0.0.1:9000/?ns=demo-transvahan" // change ns if needed
+  databaseURL: "http://127.0.0.1:9000/?ns=demo-transvahan"
 });
 const db = getDatabase(app);
 
@@ -35,10 +35,27 @@ async function seedSeatStatus() {
   }
 }
 
+// ---- Seed GPS Points ----
+async function seedGpsPoints() {
+  const gpsData = JSON.parse(fs.readFileSync("./db/seed/gps_points.json"));
+  for (const trip of gpsData) {
+    for (const point of trip.points) {
+      const ts = new Date(point.timestamp).getTime();
+      await db.ref(`gps/${trip.tripId}/${ts}`).set({
+        lat: point.lat,
+        lon: point.lon,
+        speed: point.speed
+      });
+    }
+    console.log(`Seeded gps points for ${trip.tripId}`);
+  }
+}
+
 // ---- Main ----
 async function main() {
   await seedConcurrentUsers();
   await seedSeatStatus();
+  await seedGpsPoints();
   process.exit(0);
 }
 
