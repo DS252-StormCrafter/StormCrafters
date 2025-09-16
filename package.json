@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Scripts for managing and seeding the Transvahan Firebase database.",
   "main": "index.js",
+  "type":"module",
   "scripts": {
     "lint": "eslint db/scripts/*.js",
     "seed:firestore": "node db/scripts/seed_firestore.js",
