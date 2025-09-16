@@ -2,9 +2,9 @@ name: CI/CD for Transvahan DB
 
 on:
   push:
-    branches: ["main"]
+    branches: ["db-mock"]
   pull_request:
-    branches: ["main"]
+    branches: ["db-mock"]
 
 jobs:
   lint-test:
