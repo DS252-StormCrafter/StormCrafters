@@ -1,0 +1,26 @@
+[
+  {
+    "vehicleId": "tv_101",
+    "plateNo": "KA-01-AB-1234",
+    "capacity": 4,
+    "status": "in_service",
+    "currentRoute": "route_1",
+    "liveLocation": {
+      "lat": 12.9716,
+      "lon": 77.5946,
+      "updatedAt": "2025-10-01T12:00:00Z"
+    }
+  },
+  {
+    "vehicleId": "tv_102",
+    "plateNo": "KA-01-XY-5678",
+    "capacity": 2,
+    "status": "idle",
+    "currentRoute": null,
+    "liveLocation": {
+      "lat": 12.9352,
+      "lon": 77.6245,
+      "updatedAt": "2025-10-01T12:05:00Z"
+    }
+  }
+]
