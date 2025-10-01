@@ -6,6 +6,10 @@ users:
     role: enum(student, driver, admin, visitor)
     createdAt: timestamp
     lastLogin: timestamp
+    liveLocation:
+      lat: number
+      lon: number
+      updatedAt: timestamp
     isActive: boolean
 
 vehicles:
