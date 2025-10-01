@@ -1,0 +1,20 @@
+[
+  {
+    "driver_id": "d001",
+    "name": "Ravi Kumar",
+    "phone": "+91-9876543210",
+    "license_no": "KA-01-123456",
+    "assigned_vehicle": "bus_101",
+    "status": "active",
+    "shift": "morning"
+  },
+  {
+    "driver_id": "d002",
+    "name": "Suresh Reddy",
+    "phone": "+91-9988776655",
+    "license_no": "KA-02-654321",
+    "assigned_vehicle": "bus_102",
+    "status": "inactive",
+    "shift": "evening"
+  }
+]
