@@ -28,6 +28,14 @@ routes:
         departTime: string
         arrivalTime: string
         note: string
+drivers:
+  driver_id: string
+  name: string
+  phone: string
+  license_no: string
+  assigned_vehicle: string
+  status: string
+  shift: string
 
 trips:
   {tripId}:
