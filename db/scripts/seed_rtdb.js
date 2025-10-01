@@ -50,12 +50,31 @@ async function seedGpsPoints() {
     console.log(`Seeded gps points for ${trip.tripId}`);
   }
 }
+// ---- Seed Vehicles ----
+async function seedVehicles() {
+  const vehicles = JSON.parse(fs.readFileSync("./db/seed/vehicles.json"));
+  for (const vehicle of vehicles) {
+    await db.ref(`vehicles/${vehicle.vehicleId}`).set({
+      plateNo: vehicle.plateNo,
+      capacity: vehicle.capacity,
+      status: vehicle.status,
+      currentRoute: vehicle.currentRoute,
+      liveLocation: {
+        lat: vehicle.liveLocation.lat,
+        lon: vehicle.liveLocation.lon,
+        updatedAt: new Date(vehicle.liveLocation.updatedAt).getTime()
+      }
+    });
+    console.log(`Seeded vehicle ${vehicle.vehicleId}`);
+  }
+}
 
 // ---- Main ----
 async function main() {
   await seedConcurrentUsers();
   await seedSeatStatus();
   await seedGpsPoints();
+  await seedVehicles();
   process.exit(0);
 }
 
