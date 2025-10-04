@@ -1,6 +1,6 @@
 {
   "firestore": {
-    "rules": "db/firestore_schema.yaml"
+    "rules": "firestore.rules"
   },
   "database": {
     "rules": "db/rtdb_schema.json"
