@@ -46,15 +46,22 @@ export default function authRoutes(db) {
         createdAt: new Date().toISOString(),
       });
 
-      // Optional: disable temporarily if EMAIL_USER not configured
-       await transporter.sendMail({
-         from: process.env.EMAIL_USER,
-         to: email,
-         subject: "Transvahan OTP Verification",
-         text: `Your OTP is ${otp}`,
-       });
+      // Optional: send OTP email if EMAIL_USER is configured
+      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        await transporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: email,
+          subject: "Transvahan OTP Verification",
+          text: `Your OTP is ${otp}`,
+        });
+      } else {
+        console.log(`📩 OTP for ${email}: ${otp} (email not configured)`);
+      }
 
-      console.log(`✅ User ${email} registered successfully`);
+      console.log(
+        `✅ User saved in Firestore (${process.env.FIRESTORE_EMULATOR_HOST ? "Emulator" : "Live"}): ${email}`
+      );
+
       res.json({ message: "User registered. Please verify OTP." });
     } catch (err) {
       console.error("Signup error:", err);
@@ -72,6 +79,7 @@ export default function authRoutes(db) {
       const snap = await userRef.get();
       if (!snap.exists)
         return res.status(400).json({ error: "User not found" });
+
       if (snap.data().otp !== otp)
         return res.status(400).json({ error: "Invalid OTP" });
 
@@ -157,7 +165,7 @@ export default function authRoutes(db) {
         { expiresIn: "7d" }
       );
 
-      console.log("✅ Token generated successfully");
+      console.log("✅ Admin token generated successfully");
       res.json({
         token,
         user: { email: admin.email, role: "admin" },
@@ -167,6 +175,48 @@ export default function authRoutes(db) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
+  // ================= DRIVER LOGIN =================
+router.post("/driver/login", async (req, res) => {
+  const { email, password } = req.body;
+  console.log("🟡 Driver login attempt:", email);
+
+  try {
+    const snap = await db
+      .collection("drivers")
+      .where("email", "==", email)
+      .limit(1)
+      .get();
+
+    if (snap.empty) {
+      console.log("❌ Driver not found in Firestore");
+      return res.status(400).json({ error: "Driver not found" });
+    }
+
+    const driverDoc = snap.docs[0];
+    const driver = driverDoc.data();
+
+    const match = await bcrypt.compare(password, driver.password);
+    console.log("🔍 Password match result:", match);
+
+    if (!match) return res.status(403).json({ error: "Invalid credentials" });
+
+    const token = jwt.sign(
+      { id: driverDoc.id, email: driver.email, role: "driver" },
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "7d" }
+    );
+
+    console.log("✅ Driver logged in successfully");
+    res.json({
+      token,
+      user: { email: driver.email, role: "driver", name: driver.name },
+    });
+  } catch (err) {
+    console.error("Driver login error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 
   return router;
 }

@@ -2,57 +2,91 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import { authenticate } from "../middleware/auth.js";
 
 export default function driverRoutes(db) {
   const router = Router();
 
-  // driver login (admin-created drivers stored in `drivers` collection)
+  // ============================================================
+  // ✅ DRIVER LOGIN (Public)
+  // ============================================================
   router.post("/login", async (req, res) => {
     try {
       const { email, password } = req.body;
+
       const snap = await db.collection("drivers").where("email", "==", email).limit(1).get();
       if (snap.empty) return res.status(401).json({ error: "Driver not found" });
 
       const d = snap.docs[0];
       const driver = d.data();
+
       const match = await bcrypt.compare(password, driver.password);
       if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
-      const token = jwt.sign({ id: d.id, email: driver.email, role: "driver" }, process.env.JWT_SECRET || "secret", { expiresIn: "7d" });
+      const token = jwt.sign(
+        { id: d.id, email: driver.email, role: "driver" },
+        process.env.JWT_SECRET || "secret",
+        { expiresIn: "7d" }
+      );
 
       await d.ref.update({ lastLoginAt: new Date().toISOString() });
 
-      res.json({ token, driver: { id: d.id, name: driver.name, email: driver.email } });
+      const vehicleSnap = await db.collection("vehicles").where("assignedTo", "==", driver.email).get();
+      const assignedVehicles = vehicleSnap.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      res.json({
+        token,
+        driver: {
+          id: d.id,
+          name: driver.name,
+          email: driver.email,
+          role: "driver",
+        },
+        assignedVehicles,
+      });
     } catch (err) {
       console.error("Driver login error:", err);
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  // driver posts GPS / telemetry
-  router.post("/telemetry", async (req, res) => {
-    // expected: { vehicleId, lat, lng, occupancy, status, route_id }
+  // ============================================================
+  // ✅ TELEMETRY UPDATE (Protected)
+  // ============================================================
+  router.post("/telemetry", authenticate, async (req, res) => {
     try {
       const { vehicleId, lat, lng, occupancy, status, route_id } = req.body;
-      if (!vehicleId) return res.status(400).json({ error: "vehicleId required" });
+      const driverEmail = req.user?.email; // ✅ FIXED
+
+      if (!driverEmail) return res.status(401).json({ error: "Invalid driver token" });
+      if (!vehicleId || !lat || !lng)
+        return res.status(400).json({ error: "vehicleId, lat, lng required" });
 
       const vRef = db.collection("vehicles").doc(vehicleId);
-      await vRef.set({
-        location: { lat, lng, timestamp: Date.now() },
-        occupancy: typeof occupancy === "number" ? occupancy : undefined,
-        status: status || "active",
-        currentRoute: route_id || null,
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      await vRef.set(
+        {
+          driverEmail,
+          location: { lat, lng, timestamp: Date.now() },
+          occupancy: typeof occupancy === "number" ? occupancy : undefined,
+          status: status || "active",
+          currentRoute: route_id || null,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
-      // keep a light activity log for analytics
       await db.collection("driver_activity").add({
+        driverEmail,
         vehicleId,
         lat,
         lng,
         occupancy,
         status,
         route_id,
+        type: "telemetry",
         createdAt: new Date().toISOString(),
       });
 
@@ -63,26 +97,33 @@ export default function driverRoutes(db) {
     }
   });
 
-  // driver updates seat (increment / decrement)
-  router.post("/occupancy", async (req, res) => {
+  // ============================================================
+  // ✅ OCCUPANCY UPDATE (Protected)
+  // ============================================================
+  router.post("/occupancy", authenticate, async (req, res) => {
     try {
-      const { vehicleId, delta } = req.body; // delta = +1 or -1
-      if (!vehicleId || typeof delta !== "number") return res.status(400).json({ error: "vehicleId & delta required" });
+      const { vehicleId, delta } = req.body;
+      const driverEmail = req.user?.email; // ✅ FIXED
+
+      if (!driverEmail) return res.status(401).json({ error: "Invalid driver token" });
+      if (!vehicleId || typeof delta !== "number")
+        return res.status(400).json({ error: "vehicleId & delta required" });
 
       const vRef = db.collection("vehicles").doc(vehicleId);
       await db.runTransaction(async (tx) => {
         const doc = await tx.get(vRef);
-        const current = doc.exists ? (doc.data().occupancy || 0) : 0;
-        const cap = doc.exists ? (doc.data().capacity || 4) : 4;
-        let next = current + delta;
-        if (next < 0) next = 0;
-        if (next > cap) next = cap;
+        const current = doc.exists ? doc.data().occupancy || 0 : 0;
+        const cap = doc.exists ? doc.data().capacity || 4 : 4;
+        const next = Math.min(Math.max(current + delta, 0), cap);
         tx.set(vRef, { occupancy: next, updatedAt: new Date().toISOString() }, { merge: true });
       });
 
-      // activity log
       await db.collection("driver_activity").add({
-        vehicleId, delta, createdAt: new Date().toISOString(), type: "occupancy_change"
+        driverEmail,
+        vehicleId,
+        delta,
+        type: "occupancy_change",
+        createdAt: new Date().toISOString(),
       });
 
       res.json({ ok: true });
@@ -92,19 +133,48 @@ export default function driverRoutes(db) {
     }
   });
 
-  // route selection & trip controls (start/stop)
-  router.post("/trip", async (req, res) => {
+  // ============================================================
+  // ✅ TRIP START/STOP (Protected)
+  // ============================================================
+  router.post("/trip", authenticate, async (req, res) => {
     try {
-      const { vehicleId, action, route_id } = req.body; // action: 'start'|'stop'
-      if (!vehicleId || !action) return res.status(400).json({ error: "vehicleId & action required" });
+      const { vehicleId, action, route_id } = req.body;
+      const driverEmail = req.user?.email; // ✅ FIXED
+
+      if (!driverEmail) return res.status(401).json({ error: "Invalid driver token" });
+      if (!vehicleId || !action)
+        return res.status(400).json({ error: "vehicleId & action required" });
 
       if (action === "start") {
-        await db.collection("vehicles").doc(vehicleId).set({ currentRoute: route_id || null, status: "running", tripStartedAt: new Date().toISOString() }, { merge: true });
+        await db.collection("vehicles").doc(vehicleId).set(
+          {
+            driverEmail,
+            currentRoute: route_id || null,
+            status: "running",
+            tripStartedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
       } else {
-        await db.collection("vehicles").doc(vehicleId).set({ status: "idle", currentRoute: null, tripEndedAt: new Date().toISOString() }, { merge: true });
+        await db.collection("vehicles").doc(vehicleId).set(
+          {
+            driverEmail,
+            status: "idle",
+            currentRoute: null,
+            tripEndedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
       }
 
-      await db.collection("driver_activity").add({ vehicleId, action, route_id, createdAt: new Date().toISOString() });
+      await db.collection("driver_activity").add({
+        driverEmail,
+        vehicleId,
+        action,
+        route_id,
+        createdAt: new Date().toISOString(),
+        type: "trip_control",
+      });
 
       res.json({ ok: true });
     } catch (err) {

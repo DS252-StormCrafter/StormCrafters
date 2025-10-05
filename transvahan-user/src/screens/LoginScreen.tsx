@@ -1,25 +1,23 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, Alert } from 'react-native';
-import axios from 'axios';
-import Constants from 'expo-constants';
-import * as Crypto from 'expo-crypto';
-import { useAuth } from '../auth/authContext';
-import { setToken as setApiToken } from '../api/client';
+// src/screens/LoginScreen.tsx
+import React, { useState } from "react";
+import { View, Text, TextInput, Pressable, Alert } from "react-native";
+import axios from "axios";
+import Constants from "expo-constants";
+import * as Crypto from "expo-crypto";
+import { useAuth } from "../auth/authContext";
+import { setToken as setApiToken } from "../api/client";
 
-const API = Constants.expoConfig?.extra?.API_BASE_URL;
+const API = Constants.expoConfig?.extra?.API_BASE_URL || "http://10.81.30.77:5000";
 
-export default function LoginScreen({ navigation }: any) {
-  const { signIn } = useAuth();  // ✅ use signIn instead of setUser
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+export default function LoginScreen() {
+  const { signIn } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const hashPassword = async (plain: string) => {
-    return await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      plain
-    );
-  };
+  // 🔐 Hash password before sending to backend
+  const hashPassword = async (plain: string) =>
+    await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, plain);
 
   const onLogin = async () => {
     try {
@@ -30,8 +28,7 @@ export default function LoginScreen({ navigation }: any) {
 
       setLoading(true);
       const passwordHash = await hashPassword(password);
-
-      console.log("➡️ Login request:", { email, passwordHash });
+      console.log("➡️ Logging in to:", `${API}/auth/login`);
 
       const { data } = await axios.post(`${API}/auth/login`, {
         email,
@@ -40,20 +37,19 @@ export default function LoginScreen({ navigation }: any) {
 
       console.log("✅ Login success:", data);
 
-      // Save token for API calls
+      // ✅ Ensure API token is set globally (for /routes, /vehicles, etc.)
       setApiToken(data.token);
+      console.log("🔑 Token applied globally:", data.token?.slice(0, 25) + "...");
 
-      // Update global auth context (user + token)
-      await signIn(data.token, data.user);
+      // ✅ Update global auth context
+      await signIn(data.token, data.user, false);
 
       Alert.alert("✅ Logged in", `Welcome back, ${data.user.name}`);
     } catch (e: any) {
-      console.log("❌ Login error full:", e?.response?.data ?? e);
-
+      console.log("❌ Login error:", e?.response?.data || e.message);
       const msg =
         e?.response?.data?.error ??
         (e.message?.includes("Network") ? "Network error" : "Login failed");
-
       Alert.alert("Login failed", msg);
     } finally {
       setLoading(false);
@@ -61,10 +57,8 @@ export default function LoginScreen({ navigation }: any) {
   };
 
   return (
-    <View style={{ flex: 1, justifyContent: 'center', padding: 24, gap: 12 }}>
-      <Text style={{ fontSize: 28, fontWeight: '800', marginBottom: 12 }}>
-        Login
-      </Text>
+    <View style={{ flex: 1, justifyContent: "center", padding: 24, gap: 12 }}>
+      <Text style={{ fontSize: 28, fontWeight: "800", marginBottom: 12 }}>Login</Text>
       <TextInput
         value={email}
         onChangeText={setEmail}
@@ -73,7 +67,7 @@ export default function LoginScreen({ navigation }: any) {
         keyboardType="email-address"
         style={{
           borderWidth: 1,
-          borderColor: '#e5e7eb',
+          borderColor: "#e5e7eb",
           padding: 12,
           borderRadius: 10,
         }}
@@ -85,7 +79,7 @@ export default function LoginScreen({ navigation }: any) {
         secureTextEntry
         style={{
           borderWidth: 1,
-          borderColor: '#e5e7eb',
+          borderColor: "#e5e7eb",
           padding: 12,
           borderRadius: 10,
         }}
@@ -94,23 +88,15 @@ export default function LoginScreen({ navigation }: any) {
         onPress={onLogin}
         disabled={loading}
         style={{
-          backgroundColor: '#111827',
+          backgroundColor: "#111827",
           padding: 14,
           borderRadius: 12,
-          alignItems: 'center',
+          alignItems: "center",
           marginTop: 12,
         }}
       >
-        <Text style={{ color: 'white', fontWeight: '700' }}>
-          {loading ? 'Signing in…' : 'Sign In'}
-        </Text>
-      </Pressable>
-      <Pressable
-        onPress={() => navigation.replace("Signup")}
-        style={{ marginTop: 12 }}
-      >
-        <Text style={{ textAlign: 'center', color: '#2563eb' }}>
-          Don’t have an account? Sign Up
+        <Text style={{ color: "white", fontWeight: "700" }}>
+          {loading ? "Signing in…" : "Sign In"}
         </Text>
       </Pressable>
     </View>

@@ -1,14 +1,12 @@
+// src/App.tsx
 import React from "react";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import AppNav from "./navigation";
 import { AuthProvider } from "./auth/authContext";
+import AppNav from "./navigation";
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <AppNav />
-      </AuthProvider>
-    </SafeAreaProvider>
+    <AuthProvider>
+      <AppNav />
+    </AuthProvider>
   );
 }

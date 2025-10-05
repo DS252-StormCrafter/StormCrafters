@@ -29,7 +29,7 @@ export default function DriverLoginScreen({ navigation }: any) {
         return;
       }
 
-      await signIn(data.token, data.user);
+      await signIn(data.token, data.user, data.user.role === "driver");
     } catch (err: any) {
       Alert.alert("Login failed", err.response?.data?.error || "Check credentials");
     }

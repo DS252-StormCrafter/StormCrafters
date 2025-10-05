@@ -1,11 +1,36 @@
+// backend/seedRoutes.js
 import admin from "firebase-admin";
 import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-dotenv.config();
+// Resolve backend directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-admin.initializeApp({
-  projectId: process.env.FIREBASE_PROJECT_ID || "demo-transvahan",
-});
+// ✅ Load env vars (so GOOGLE_APPLICATION_CREDENTIALS & FIREBASE_PROJECT_ID work)
+dotenv.config({ path: path.resolve(__dirname, "./.env") });
+
+// ✅ Initialize Firebase Admin
+if (!admin.apps.length) {
+  const servicePath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!servicePath) throw new Error("GOOGLE_APPLICATION_CREDENTIALS not set in .env");
+
+  const fullPath = path.isAbsolute(servicePath)
+    ? servicePath
+    : path.resolve(process.cwd(), servicePath);
+
+  const serviceAccount = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    projectId:
+      process.env.FIREBASE_PROJECT_ID ||
+      serviceAccount.project_id ||
+      serviceAccount.projectId,
+  });
+  console.log("☁️ Firebase initialized using:", fullPath);
+}
 
 const db = admin.firestore();
 
@@ -20,7 +45,6 @@ async function seed() {
         { trip: 1, startTime: "08:00 AM", endTime: "08:15 AM" },
         { trip: 2, startTime: "08:20 AM", endTime: "08:35 AM" },
         { trip: 3, startTime: "08:40 AM", endTime: "08:55 AM" },
-        // ... fill from PDF
       ],
       breaks: [
         { from: "09:55 AM", to: "10:10 AM", reason: "Tea Break" },
@@ -36,7 +60,6 @@ async function seed() {
       schedule: [
         { trip: 1, startTime: "08:05 AM", endTime: "08:20 AM" },
         { trip: 2, startTime: "08:25 AM", endTime: "08:40 AM" },
-        // ... fill from PDF
       ],
       breaks: [
         { from: "10:00 AM", to: "10:15 AM", reason: "Tea Break" },
@@ -44,13 +67,7 @@ async function seed() {
         { from: "04:15 PM", to: "04:30 PM", reason: "Tea Break" },
       ],
     },
-    // Add Blue, Orange, Purple, Yellow similarly
   ];
-
-  for (const route of routes) {
-    await db.collection("routes").doc(route.id).set(route);
-    console.log(`✅ Seeded route: ${route.id}`);
-  }
 
   const vehicles = [
     {
@@ -73,9 +90,14 @@ async function seed() {
       occupancy: 0,
       currentRoute: "green_line",
       status: "inactive",
-      location: { lat: 12.9766, lng: 77.5920, timestamp: Date.now() },
+      location: { lat: 12.9766, lng: 77.592, timestamp: Date.now() },
     },
   ];
+
+  for (const route of routes) {
+    await db.collection("routes").doc(route.id).set(route);
+    console.log(`✅ Seeded route: ${route.id}`);
+  }
 
   for (const vehicle of vehicles) {
     await db.collection("vehicles").doc(vehicle.id).set(vehicle);
@@ -83,6 +105,10 @@ async function seed() {
   }
 
   console.log("🎉 Seeding complete");
+  process.exit(0);
 }
 
-seed().then(() => process.exit(0));
+seed().catch((err) => {
+  console.error("❌ Error seeding:", err);
+  process.exit(1);
+});
