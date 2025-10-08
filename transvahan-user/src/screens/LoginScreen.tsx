@@ -7,7 +7,7 @@ import * as Crypto from "expo-crypto";
 import { useAuth } from "../auth/authContext";
 import { setToken as setApiToken } from "../api/client";
 
-const API = Constants.expoConfig?.extra?.API_BASE_URL || "http://10.81.30.77:5000";
+const API = Constants.expoConfig?.extra?.API_BASE_URL || "http://10.217.26.188:5001";
 
 export default function LoginScreen() {
   const { signIn } = useAuth();

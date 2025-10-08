@@ -6,7 +6,7 @@ import { useAlerts } from "../hooks/useAlerts";
 
 // Fallback to explicit IP if not provided in app config
 const API =
-  Constants.expoConfig?.extra?.API_BASE_URL || "http://10.81.30.77:5000"; // 👈 replace with your machine IP
+  Constants.expoConfig?.extra?.API_BASE_URL || "http://10.217.26.188:5001"; // 👈 replace with your machine IP
 
 export default function ShuttleListScreen() {
   const [vehicles, setVehicles] = useState<any[]>([]);

@@ -26,6 +26,8 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 /* -------------------- User Tabs -------------------- */
+import UserAlertsTab from "../screens/UserAlertsTab";
+
 function HomeTabs() {
   return (
     <Tab.Navigator
@@ -36,6 +38,7 @@ function HomeTabs() {
           if (route.name === "Map") return <Ionicons name="map" size={size} color={color} />;
           if (route.name === "Schedules") return <Ionicons name="list" size={size} color={color} />;
           if (route.name === "Planner") return <Ionicons name="navigate" size={size} color={color} />;
+          if (route.name === "Alerts") return <Ionicons name="alert-circle" size={size} color={color} />;
           return <Ionicons name="settings" size={size} color={color} />;
         },
       })}
@@ -43,10 +46,12 @@ function HomeTabs() {
       <Tab.Screen name="Map" component={MapTab} />
       <Tab.Screen name="Schedules" component={ScheduleTab} />
       <Tab.Screen name="Planner" component={PlannerTab} />
+      <Tab.Screen name="Alerts" component={UserAlertsTab} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );
 }
+
 
 /* -------------------- Driver Tabs -------------------- */
 function DriverTabs() {

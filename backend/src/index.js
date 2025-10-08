@@ -1,4 +1,12 @@
 // backend/src/index.js
+/**
+ * Full backend entrypoint (expanded)
+ * - Robust dotenv + emulator detection
+ * - Service account resolution (absolute or relative)
+ * - Route wiring (auth, vehicle, routes, feedback, alerts, admin, driver)
+ * - WebSocket server for real-time vehicle updates + alert broadcast integration
+ */
+
 import express from "express";
 import admin from "firebase-admin";
 import dotenv from "dotenv";
@@ -9,7 +17,7 @@ import cors from "cors";
 import { WebSocketServer } from "ws";
 import { authenticate } from "./middleware/auth.js";
 
-// --- Routes (unchanged) ---
+// --- Routes ---
 import authRoutes from "./routes/auth.js";
 import vehicleRoutes from "./routes/vehicle.js";
 import routeRoutes from "./routes/route.js";
@@ -18,37 +26,46 @@ import alertsRoutes from "./routes/alerts.js";
 import adminRoutes from "./routes/admin.js";
 import driverRoutes from "./routes/driver.js";
 
-// --- Load env (ensure .env in backend/ or adjust path) ---
+// --- env setup ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load .env (prefer backend/.env)
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
-// --- Firebase initialization (robust) ---
+// -----------------------------------------------------------------------------
+// Firebase init (robust: supports emulator and service-account JSON path resolution)
+// -----------------------------------------------------------------------------
 function initFirebase() {
-  if (admin.apps.length) return admin.app();
-
-  const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST?.trim();
-  const projectIdFromEnv = (process.env.FIREBASE_PROJECT_ID || "").trim();
-
-  // If emulator configured, initialize with projectId and return
-  if (emulatorHost) {
-    const pid = projectIdFromEnv || "fir-transvahan";
-    console.log(`🔥 Using Firestore Emulator at ${emulatorHost} (projectId=${pid})`);
-    admin.initializeApp({ projectId: pid });
-    const db = admin.firestore();
-    db.settings({ host: emulatorHost, ssl: false });
+  if (admin.apps.length) {
+    console.log("🔁 Firebase already initialized - reusing existing app");
     return admin.app();
   }
 
-  // Otherwise attempt to initialize using service account JSON (GOOGLE_APPLICATION_CREDENTIALS)
+  const emulatorHostRaw = process.env.FIRESTORE_EMULATOR_HOST;
+  const firestoreEmulatorHost = emulatorHostRaw ? emulatorHostRaw.trim() : "";
+
+  const projectIdFromEnv = (process.env.FIREBASE_PROJECT_ID || "").trim();
+
+  // 1) If emulator is configured -> init with project id and point to emulator
+  if (firestoreEmulatorHost) {
+    const pid = projectIdFromEnv || "fir-transvahan";
+    console.log(`🔥 Using Firestore Emulator at ${firestoreEmulatorHost} (projectId=${pid})`);
+    admin.initializeApp({ projectId: pid });
+    const db = admin.firestore();
+    db.settings({ host: firestoreEmulatorHost, ssl: false });
+    return admin.app();
+  }
+
+  // 2) Otherwise, expect a service account JSON via GOOGLE_APPLICATION_CREDENTIALS
   const servicePathRaw = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!servicePathRaw) {
-    console.error("❌ GOOGLE_APPLICATION_CREDENTIALS is not set in .env and FIRESTORE_EMULATOR_HOST is not set.");
-    console.error("   Please set GOOGLE_APPLICATION_CREDENTIALS to your service account JSON (absolute path) or set FIRESTORE_EMULATOR_HOST for local testing.");
+    console.error("❌ GOOGLE_APPLICATION_CREDENTIALS is not set and FIRESTORE_EMULATOR_HOST not set.");
+    console.error("   Please set GOOGLE_APPLICATION_CREDENTIALS (absolute path) or enable emulator.");
     process.exit(1);
   }
 
-  // Resolve path: absolute or relative to backend/ directory
+  // Resolve path (absolute or relative to backend/ directory)
   const servicePath = path.isAbsolute(servicePathRaw)
     ? servicePathRaw
     : path.resolve(process.cwd(), servicePathRaw);
@@ -59,13 +76,16 @@ function initFirebase() {
   }
 
   try {
-    const serviceAccount = JSON.parse(fs.readFileSync(servicePath, "utf8"));
+    const serviceAccountRaw = fs.readFileSync(servicePath, "utf8");
+    const serviceAccount = JSON.parse(serviceAccountRaw);
     const projectId = serviceAccount.project_id || projectIdFromEnv || serviceAccount.projectId;
     console.log(`☁️ Using live Firestore project (projectId=${projectId}) via service account: ${servicePath}`);
+
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       projectId,
     });
+
     return admin.app();
   } catch (err) {
     console.error("🔥 Failed to initialize Firebase Admin SDK from service account JSON:", err);
@@ -73,53 +93,56 @@ function initFirebase() {
   }
 }
 
-// initialize
+// initialize firebase
 initFirebase();
 const db = admin.firestore();
 
-// --- Express setup ---
+// -----------------------------------------------------------------------------
+// Express setup
+// -----------------------------------------------------------------------------
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
-// --- Routes (public & protected) ---
+// --- Public routes that don't require admin checks are mounted below
 app.use("/auth", authRoutes(db));
+
+// For routes that require authentication we wire `authenticate` middleware when needed.
+// We'll mount /vehicle, /routes etc below (some are protected)
 
 app.use("/vehicle", authenticate, vehicleRoutes(db));
 app.use("/routes", authenticate, routeRoutes(db));
 app.use("/feedback", authenticate, feedbackRoutes(db));
-app.use("/alerts", authenticate, alertsRoutes(db));
 
+// Admin routes and driver routes are mounted below (admin uses authenticate + requireAdmin inside controllers if required)
 app.use("/admin", authenticate, adminRoutes(db));
 console.log("🛠️ Admin routes loaded successfully.");
 
-// 🚖 Driver routes (login open, others protected inside router)
+// Driver routes: driverRoutes handles its own protection for subpaths; login remains open inside driverRoutes
 app.use("/driver", driverRoutes(db));
 console.log("🚖 Driver routes loaded successfully.");
 
-// health (quick check)
-app.get("/health", async (req, res) => {
-  try {
-    // try a cheap read (no heavy quota)
-    const q = await db.collection("__healthcheck__").limit(1).get().catch(() => null);
-    res.json({ ok: true, projectId: admin.instanceId ? admin.instanceId() : process.env.FIREBASE_PROJECT_ID || null });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// --- Start server ---
-const PORT = process.env.PORT || 5000;
+// -----------------------------------------------------------------------------
+// Start server and attach WebSocketServer
+// -----------------------------------------------------------------------------
+const PORT = process.env.PORT || 5001;
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Backend running on http://localhost:${PORT}`);
+  console.log(`🚀 Backend running on http://10.217.26.188:${PORT}`);
 });
 
-// --- WebSocket server (unchanged) ---
+// Create WebSocket server on same HTTP server under "/ws"
 const wss = new WebSocketServer({ server, path: "/ws" });
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  // Optionally inspect query params / headers here for auth (not required for read-only updates)
   console.log("📡 WebSocket client connected");
 
+  // Send a small welcome message (client may ignore)
+  try {
+    ws.send(JSON.stringify({ type: "welcome", data: { serverTime: new Date().toISOString() } }));
+  } catch (e) {}
+
+  // Periodic push: vehicles
   const interval = setInterval(async () => {
     try {
       const snapshot = await db.collection("vehicles").get();
@@ -139,18 +162,62 @@ wss.on("connection", (ws) => {
             ? new Date(d.location.timestamp).toISOString()
             : new Date().toISOString(),
         };
-        try { ws.send(JSON.stringify(shaped)); } catch (e) { /* no-op */ }
+        try {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: "vehicle", data: shaped }));
+          }
+        } catch (sendErr) {
+          // ignore per connection
+        }
       });
     } catch (err) {
-      console.error("WebSocket error:", err);
+      console.error("WebSocket vehicle broadcast error:", err);
     }
-  }, 5000);
+  }, 5001);
 
   ws.on("close", () => {
     clearInterval(interval);
     console.log("❌ WebSocket client disconnected");
   });
+
+  ws.on("error", (err) => {
+    console.warn("WebSocket connection error:", err);
+  });
 });
 
-// export db for other modules (if needed)
-export { db };
+// -----------------------------------------------------------------------------
+// Alerts route wiring (with access to wss for broadcasting)
+// - If your alertsRoutes function signature expects only (db) it will ignore the second argument.
+// - If it accepts (db, wss), it can use wss to broadcast immediately when an alert is created.
+// -----------------------------------------------------------------------------
+try {
+  // mount alerts as protected endpoint (requires valid auth token)
+  // alertsRoutes may be a factory function: alertsRoutes(db) or alertsRoutes(db, wss)
+  // we call with both — JS functions ignore extra args if not declared.
+  app.use("/alerts", authenticate, alertsRoutes(db, wss));
+  console.log("🔔 Alerts route mounted (authenticated)");
+} catch (err) {
+  // fallback: try to mount with db only
+  try {
+    app.use("/alerts", authenticate, alertsRoutes(db));
+    console.log("🔔 Alerts route mounted (authenticated) [fallback: db only]");
+  } catch (e) {
+    console.error("❌ Failed to mount alerts route:", e);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Health check
+// -----------------------------------------------------------------------------
+app.get("/health", async (req, res) => {
+  try {
+    // cheap read (no heavy quota)
+    await db.collection("__healthcheck__").limit(1).get().catch(() => null);
+    res.json({ ok: true, projectId: process.env.FIREBASE_PROJECT_ID || admin.instanceId?.() || null });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Export db for other modules if needed
+export { db, wss };

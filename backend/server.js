@@ -16,7 +16,7 @@ app.use('/api/admin', adminRouter);
 // app.use('/api/auth', authRouter);
 // app.use('/api/driver', driverRouter);
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const MONGO = process.env.MONGO_URI;
 
 mongoose.connect(MONGO, { useNewUrlParser: true, useUnifiedTopology: true })

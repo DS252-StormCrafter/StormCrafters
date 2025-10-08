@@ -1,5 +1,5 @@
 // src/screens/DriverAlertsTab.tsx
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -7,40 +7,43 @@ import {
   StyleSheet,
   RefreshControl,
   ActivityIndicator,
+  Alert,
 } from "react-native";
-import axios from "axios";
-import Constants from "expo-constants";
-
-const API_BASE_URL =
-  Constants.expoConfig?.extra?.API_BASE_URL || "http://10.81.30.77:5000";
+import { apiClient } from "../api/client";
 
 export default function DriverAlertsTab() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchAlerts = useCallback(async () => {
+  const fetchAlerts = async () => {
     try {
       setRefreshing(true);
-      const { data } = await axios.get(`${API_BASE_URL}/alerts`);
-      setAlerts(Array.isArray(data) ? data : []);
+      const data = await apiClient.getAlerts?.();
+      setAlerts(data || []);
     } catch (err) {
       console.warn("Error fetching alerts:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
     fetchAlerts();
-  }, [fetchAlerts]);
+    // ✅ subscribe to live alerts
+    const unsubscribe = apiClient.subscribeAlerts?.((alert) => {
+      setAlerts((prev) => [alert, ...prev]);
+      Alert.alert("🔔 New Alert", alert.message || "Admin sent a notification");
+    });
+    return () => unsubscribe && unsubscribe();
+  }, []);
 
   if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={{ marginTop: 8 }}>Loading alerts...</Text>
+        <Text>Loading alerts...</Text>
       </View>
     );
   }
@@ -50,26 +53,18 @@ export default function DriverAlertsTab() {
       <Text style={styles.header}>Admin Alerts</Text>
       <FlatList
         data={alerts}
-        keyExtractor={(item, index) => item.id || index.toString()}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={fetchAlerts} />
-        }
+        keyExtractor={(item) => item.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchAlerts} />}
         renderItem={({ item }) => (
           <View style={styles.card}>
             <Text style={styles.title}>{item.title || "Alert"}</Text>
-            <Text style={styles.body}>{item.message || "No message provided"}</Text>
+            <Text style={styles.body}>{item.message}</Text>
             <Text style={styles.time}>
-              {item.timestamp
-                ? new Date(item.timestamp).toLocaleString()
-                : "No timestamp"}
+              {item.timestamp ? new Date(item.timestamp).toLocaleString() : "No timestamp"}
             </Text>
           </View>
         )}
-        ListEmptyComponent={
-          <Text style={{ textAlign: "center", marginTop: 20 }}>
-            No alerts available
-          </Text>
-        }
+        ListEmptyComponent={<Text style={{ textAlign: "center", marginTop: 20 }}>No alerts yet</Text>}
       />
     </View>
   );

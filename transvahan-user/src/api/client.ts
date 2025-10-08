@@ -6,31 +6,12 @@ import { API, LoginRequest, LoginResponse } from "./types";
 import { Route, Vehicle, NextArrival } from "../types";
 import { wsConnect } from "./ws";
 
-// ======================================================
-// ✅ Base URLs
-// ======================================================
-const API_BASE_URL =
-  Constants?.expoConfig?.extra?.API_BASE_URL || "http://10.81.30.77:5000";
-const WS_URL =
-  Constants?.expoConfig?.extra?.WS_URL ||
-  API_BASE_URL.replace(/^http/, "ws") + "/ws";
+const API_BASE_URL = Constants?.expoConfig?.extra?.API_BASE_URL || "http://10.217.26.188:5001";
+const WS_URL = API_BASE_URL.replace(/^http/, "ws") + "/ws";
 
-// ======================================================
-// ✅ Axios Instance
-// ======================================================
-const http = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000,
-});
-
-// ======================================================
-// ✅ Token handling
-// ======================================================
+const http = axios.create({ baseURL: API_BASE_URL, timeout: 10000 });
 let token: string | null = null;
-
-export const setToken = (t: string | null) => {
-  token = t;
-};
+export const setToken = (t: string | null) => (token = t);
 
 http.interceptors.request.use((config) => {
   if (token) {
@@ -40,83 +21,75 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
-// ======================================================
-// ✅ API Client
-// ======================================================
 export const apiClient: API & {
   loginDriver?: (body: { email: string; password: string }) => Promise<LoginResponse>;
-  sendTelemetry?: (body: { vehicleId: string; lat: number; lng: number; occupancy?: number; status?: string; route_id?: string }) => Promise<any>;
-  updateOccupancy?: (body: { vehicleId: string; delta: number }) => Promise<any>;
-  controlTrip?: (body: { vehicleId: string; action: "start" | "stop"; route_id?: string }) => Promise<any>;
+  sendTelemetry?: (body: any) => Promise<any>;
+  updateOccupancy?: (body: any) => Promise<any>;
+  controlTrip?: (body: any) => Promise<any>;
+  getAlerts?: () => Promise<any[]>;
+  subscribeAlerts?: (cb: (alert: any) => void) => void;
 } = {
-  // -------------------------
-  // 👤 Normal user login
-  // -------------------------
-  async login(body: LoginRequest): Promise<LoginResponse> {
+  async login(body: LoginRequest) {
     const { data } = await http.post<LoginResponse>(endpoints.login, body);
     return data;
   },
 
-  // -------------------------
-  // 🚐 Driver login
-  // -------------------------
-  async loginDriver(body: { email: string; password: string }): Promise<LoginResponse> {
+  async loginDriver(body) {
     const { data } = await http.post<LoginResponse>("/auth/driver/login", body);
     return data;
   },
 
-  // -------------------------
-  // 🛣️ Fetch all routes
-  // -------------------------
-  async getRoutes(): Promise<Route[]> {
+  async getRoutes() {
     const { data } = await http.get<Route[]>(endpoints.routes);
     return data;
   },
 
-  // -------------------------
-  // 🚍 Fetch all vehicles
-  // -------------------------
-  async getVehicles(): Promise<Vehicle[]> {
+  async getVehicles() {
     const { data } = await http.get<Vehicle[]>(endpoints.vehicles);
     return data;
   },
 
-  // -------------------------
-  // ⏰ Get upcoming arrivals
-  // -------------------------
-  async getNextArrivals(): Promise<NextArrival[]> {
+  async getNextArrivals() {
     const { data } = await http.get<NextArrival[]>(endpoints.nextArrivals);
     return data;
   },
 
-  // -------------------------
-  // 🔁 Subscribe to real-time shuttle updates
-  // -------------------------
   subscribeVehicles(cb) {
-    return wsConnect(cb);
+    const socket = new WebSocket(WS_URL);
+    socket.onmessage = (event) => {
+      const parsed = JSON.parse(event.data);
+      if (parsed.type === "vehicle") cb(parsed.data);
+    };
+    return () => socket.close();
   },
 
-  // ======================================================
-  // 🛰️ TELEMETRY
-  // ======================================================
   async sendTelemetry(body) {
     const { data } = await http.post("/driver/telemetry", body);
     return data;
   },
 
-  // ======================================================
-  // 👥 OCCUPANCY
-  // ======================================================
   async updateOccupancy(body) {
     const { data } = await http.post("/driver/occupancy", body);
     return data;
   },
 
-  // ======================================================
-  // 🏁 TRIP CONTROL
-  // ======================================================
   async controlTrip(body) {
     const { data } = await http.post("/driver/trip", body);
     return data;
+  },
+
+  // ✅ ALERTS
+  async getAlerts() {
+    const { data } = await http.get("/alerts");
+    return data;
+  },
+
+  subscribeAlerts(cb) {
+    const socket = new WebSocket(WS_URL);
+    socket.onmessage = (event) => {
+      const parsed = JSON.parse(event.data);
+      if (parsed.type === "alert") cb(parsed.data);
+    };
+    return () => socket.close();
   },
 };

@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Dimensions, ActivityIndicator, Alert } from "react-native";
 import MapView, { Marker, Callout, PROVIDER_GOOGLE } from "react-native-maps";
 import * as Location from "expo-location";
-import type { LocationObject } from "expo-location"; // ✅ Add this import
+import type { LocationObject } from "expo-location";
 import { wsConnect } from "../api/ws";
 import MapShuttleMarker from "../components/MapShuttleMarker";
 
@@ -13,8 +13,6 @@ export default function MapTab() {
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [location, setLocation] = useState<LocationObject | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // ✅ FIXED: Initialize with null
   const cleanupRef = useRef<(() => void) | null>(null);
 
   const defaultRegion = {
@@ -24,7 +22,7 @@ export default function MapTab() {
     longitudeDelta: 0.01 * ASPECT_RATIO,
   };
 
-  // --- Request user location ---
+  // Request location
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -40,7 +38,7 @@ export default function MapTab() {
     })();
   }, []);
 
-  // --- Connect WebSocket for shuttle updates ---
+  // WebSocket for shuttle live updates
   useEffect(() => {
     const cleanup = wsConnect((msg) => {
       setVehicles((prev) => {
@@ -55,8 +53,6 @@ export default function MapTab() {
     });
 
     cleanupRef.current = cleanup;
-
-    // ✅ Safely clean up connection
     return () => {
       if (cleanupRef.current) cleanupRef.current();
     };
@@ -71,6 +67,24 @@ export default function MapTab() {
     );
   }
 
+  const currentRegion = location
+    ? {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01 * ASPECT_RATIO,
+      }
+    : defaultRegion;
+
+  // Helper to pick color by status
+  const getStatusColor = (status?: string) => {
+    if (!status) return "#f59e0b"; // 🟠 unknown
+    const s = status.toLowerCase();
+    if (s.includes("run") || s.includes("active")) return "#16a34a"; // 🟢 active
+    if (s.includes("idle") || s.includes("stop")) return "#dc2626"; // 🔴 inactive
+    return "#f59e0b";
+  };
+
   return (
     <View style={styles.container}>
       <MapView
@@ -78,35 +92,47 @@ export default function MapTab() {
         provider={PROVIDER_GOOGLE}
         showsUserLocation={true}
         followsUserLocation={true}
-        initialRegion={
-          location
-            ? {
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01 * ASPECT_RATIO,
-              }
-            : defaultRegion
-        }
+        initialRegion={currentRegion}
       >
-        {vehicles.map((v) => (
-          <Marker
-            key={v.id}
-            coordinate={{ latitude: v.lat, longitude: v.lng }}
-            title={v.vehicle_id}
-            description={`Vacant: ${v.vacant}/${v.capacity}`}
-          >
-            <MapShuttleMarker vehicle={v} />
-            <Callout>
-              <View style={{ width: 180 }}>
-                <Text style={{ fontWeight: "700" }}>{v.vehicle_id}</Text>
-                <Text>Route: {v.route_id}</Text>
-                <Text>Vacant: {v.vacant}/{v.capacity}</Text>
-                <Text>Status: {v.status}</Text>
-              </View>
-            </Callout>
-          </Marker>
-        ))}
+        {vehicles.map((v, idx) => {
+          const key = v.id || v.vehicle_id || `marker-${idx}`;
+          const lat = v.lat ?? v.location?.lat;
+          const lng = v.lng ?? v.location?.lng;
+
+          if (!lat || !lng) {
+            console.warn("⚠️ Skipping vehicle with invalid coords:", v);
+            return null;
+          }
+
+          const color = getStatusColor(v.status);
+
+          return (
+            <Marker
+              key={key}
+              coordinate={{ latitude: lat, longitude: lng }}
+              title={v.vehicle_id || `Vehicle ${idx + 1}`}
+              description={`Vacant: ${v.vacant ?? v.capacity - v.occupancy ?? "?"}/${v.capacity ?? "?"}`}
+              pinColor={color} // 💡 Native marker tint
+            >
+              <MapShuttleMarker vehicle={v} color={color} />
+              <Callout tooltip>
+                <View
+                  style={[
+                    styles.callout,
+                    { borderColor: color, backgroundColor: "#fff" },
+                  ]}
+                >
+                  <Text style={[styles.title, { color }]}>{v.vehicle_id || key}</Text>
+                  <Text>Route: {v.route_id ?? "N/A"}</Text>
+                  <Text>
+                    Vacant: {v.vacant ?? v.capacity - v.occupancy ?? "?"}/{v.capacity ?? "?"}
+                  </Text>
+                  <Text>Status: {v.status ?? "Unknown"}</Text>
+                </View>
+              </Callout>
+            </Marker>
+          );
+        })}
       </MapView>
 
       {vehicles.length === 0 && (
@@ -121,6 +147,17 @@ export default function MapTab() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
+  callout: {
+    width: 190,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  title: { fontWeight: "700", fontSize: 15, marginBottom: 3 },
   empty: {
     position: "absolute",
     top: 12,
@@ -129,9 +166,5 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
   },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
 });
