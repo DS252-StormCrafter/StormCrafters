@@ -1,7 +1,7 @@
 // admin-portal/src/services/api.ts
 import axios from "axios";
 
-const API = "http://10.217.26.188:5001"; // Or your deployed backend
+const API = "http://192.168.0.156:5001"; // Or your deployed backend
 
 const api = axios.create({
   baseURL: API,

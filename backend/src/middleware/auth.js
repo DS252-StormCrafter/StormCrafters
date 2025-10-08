@@ -3,13 +3,15 @@ import jwt from "jsonwebtoken";
 import admin from "firebase-admin";
 
 /**
- * Middleware to authenticate any protected route.
- * Verifies JWT, extracts normalized user identity, and attaches to req.user.
+ * Middleware to authenticate protected routes.
+ * Accepts common JWT payload fields: id, uid, sub, email, userId
+ * Attaches `req.user = { id, email, role, raw }`
  */
 export function authenticate(req, res, next) {
   try {
     const authHeader = req.headers.authorization || req.headers.Authorization;
     if (!authHeader) {
+      // No auth header present -> respond 401 (route-level decisions can be done by mounting without this middleware)
       return res.status(401).json({ error: "No Authorization header" });
     }
 
@@ -22,13 +24,14 @@ export function authenticate(req, res, next) {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
 
-      // ✅ Normalize token payload
-      const id = decoded.id ?? decoded.uid ?? null;
-      const email = decoded.email ?? decoded.uid ?? null;
-      const role = decoded.role ?? null;
+      // Normalize token payload
+      const id = decoded.id ?? decoded.uid ?? decoded.sub ?? decoded.userId ?? null;
+      const email = decoded.email ?? decoded.emailAddress ?? decoded.userEmail ?? null;
+      const role = decoded.role ?? decoded.userRole ?? decoded.roleName ?? null;
 
-      if (!email) {
-        return res.status(401).json({ error: "Invalid token: missing email" });
+      // If email isn't present, many JWT flows still use 'sub' — tolerate id-only tokens:
+      if (!email && !id) {
+        return res.status(401).json({ error: "Invalid token: missing identity" });
       }
 
       req.user = { id, email, role, raw: decoded };
@@ -44,20 +47,20 @@ export function authenticate(req, res, next) {
 }
 
 /**
- * Admin-only middleware, ensures current user exists in Firestore `admins` collection.
+ * Admin-only middleware - verifies existence in Firestore `admins` collection.
  */
 export async function requireAdmin(req, res, next) {
   try {
-    if (!req.user?.email) {
+    if (!req.user?.email && !req.user?.id) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
     const db = admin.firestore();
-    const snap = await db
-      .collection("admins")
-      .where("email", "==", req.user.email)
-      .limit(1)
-      .get();
+    const query = req.user.email
+      ? db.collection("admins").where("email", "==", req.user.email).limit(1)
+      : db.collection("admins").where("id", "==", req.user.id).limit(1);
+
+    const snap = await query.get();
 
     if (snap.empty) {
       return res.status(403).json({ error: "Admins only" });

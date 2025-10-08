@@ -10,7 +10,7 @@ export default function DriverOccupancyTab() {
   const [capacity, setCapacity] = useState<number>(4);
   const [vehicleId] = useState<string>("BUS-101"); // ✅ Replace later with driver's selected vehicle
 
-  const API_BASE_URL = "http://10.217.26.188:5001";
+  const API_BASE_URL = "http://192.168.0.156:5001";
 
   useEffect(() => {
     // Optional: fetch initial occupancy from backend (via /vehicles)

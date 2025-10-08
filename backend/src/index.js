@@ -127,22 +127,37 @@ console.log("🚖 Driver routes loaded successfully.");
 // -----------------------------------------------------------------------------
 const PORT = process.env.PORT || 5001;
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Backend running on http://10.217.26.188:${PORT}`);
+  console.log(`🚀 Backend running on http://192.168.0.156:${PORT}`);
 });
 
 // Create WebSocket server on same HTTP server under "/ws"
+import { URL } from "url";
 const wss = new WebSocketServer({ server, path: "/ws" });
 
+// ✅ Improved WebSocket role tracking
 wss.on("connection", (ws, req) => {
-  // Optionally inspect query params / headers here for auth (not required for read-only updates)
-  console.log("📡 WebSocket client connected");
-
-  // Send a small welcome message (client may ignore)
+  let userRole = "unknown";
   try {
-    ws.send(JSON.stringify({ type: "welcome", data: { serverTime: new Date().toISOString() } }));
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    userRole = url.searchParams.get("role") || "unknown";
+  } catch (e) {
+    console.warn("⚠️ Could not parse role from WebSocket URL");
+  }
+
+  ws.userRole = userRole;
+  console.log(`📡 WebSocket connected [role=${userRole}]`);
+
+  // Send welcome message
+  try {
+    ws.send(
+      JSON.stringify({
+        type: "welcome",
+        data: { role: userRole, serverTime: new Date().toISOString() },
+      })
+    );
   } catch (e) {}
 
-  // Periodic push: vehicles
+  // Periodic vehicle updates (unchanged)
   const interval = setInterval(async () => {
     try {
       const snapshot = await db.collection("vehicles").get();
@@ -162,12 +177,8 @@ wss.on("connection", (ws, req) => {
             ? new Date(d.location.timestamp).toISOString()
             : new Date().toISOString(),
         };
-        try {
-          if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "vehicle", data: shaped }));
-          }
-        } catch (sendErr) {
-          // ignore per connection
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: "vehicle", data: shaped }));
         }
       });
     } catch (err) {
@@ -177,30 +188,26 @@ wss.on("connection", (ws, req) => {
 
   ws.on("close", () => {
     clearInterval(interval);
-    console.log("❌ WebSocket client disconnected");
+    console.log(`❌ WebSocket disconnected [role=${userRole}]`);
   });
 
   ws.on("error", (err) => {
-    console.warn("WebSocket connection error:", err);
+    console.warn(`⚠️ WebSocket error [role=${userRole}]:`, err);
   });
 });
 
 // -----------------------------------------------------------------------------
-// Alerts route wiring (with access to wss for broadcasting)
-// - If your alertsRoutes function signature expects only (db) it will ignore the second argument.
-// - If it accepts (db, wss), it can use wss to broadcast immediately when an alert is created.
+// Alerts route wiring
 // -----------------------------------------------------------------------------
 try {
-  // mount alerts as protected endpoint (requires valid auth token)
-  // alertsRoutes may be a factory function: alertsRoutes(db) or alertsRoutes(db, wss)
-  // we call with both — JS functions ignore extra args if not declared.
-  app.use("/alerts", authenticate, alertsRoutes(db, wss));
-  console.log("🔔 Alerts route mounted (authenticated)");
+  // mount alerts WITHOUT global `authenticate` so GET /alerts can be public.
+  // alertsRoutes internally protects POST/DELETE/PATCH using `authenticate` and `requireAdmin`.
+  app.use("/alerts", alertsRoutes(db, wss));
+  console.log("🔔 Alerts route mounted (routes control protection)");
 } catch (err) {
-  // fallback: try to mount with db only
   try {
-    app.use("/alerts", authenticate, alertsRoutes(db));
-    console.log("🔔 Alerts route mounted (authenticated) [fallback: db only]");
+    app.use("/alerts", alertsRoutes(db));
+    console.log("🔔 Alerts route mounted (fallback: db only)");
   } catch (e) {
     console.error("❌ Failed to mount alerts route:", e);
   }
@@ -219,5 +226,5 @@ app.get("/health", async (req, res) => {
   }
 });
 
-// Export db for other modules if needed
+// Export db and wss for other modules if needed
 export { db, wss };

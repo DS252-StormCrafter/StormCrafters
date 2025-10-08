@@ -38,19 +38,28 @@ export default function MapTab() {
     })();
   }, []);
 
-  // WebSocket for shuttle live updates
+  // WebSocket for shuttle live updates (USER ROLE)
   useEffect(() => {
     const cleanup = wsConnect((msg) => {
-      setVehicles((prev) => {
-        const idx = prev.findIndex((v) => v.id === msg.id);
-        if (idx >= 0) {
-          const updated = [...prev];
-          updated[idx] = msg;
-          return updated;
-        }
-        return [...prev, msg];
-      });
-    });
+      // Accept only vehicle updates
+      if (msg.type === "vehicle") {
+        setVehicles((prev) => {
+          const idx = prev.findIndex((v) => v.id === msg.id);
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = msg;
+            return updated;
+          }
+          return [...prev, msg];
+        });
+      }
+
+      // Display alert messages for users in console for now
+      if (msg.type === "alert") {
+        console.log("📢 User received alert:", msg.message);
+        Alert.alert("⚠️ System Alert", msg.message);
+      }
+    }, "user");
 
     cleanupRef.current = cleanup;
     return () => {
@@ -112,7 +121,7 @@ export default function MapTab() {
               coordinate={{ latitude: lat, longitude: lng }}
               title={v.vehicle_id || `Vehicle ${idx + 1}`}
               description={`Vacant: ${v.vacant ?? v.capacity - v.occupancy ?? "?"}/${v.capacity ?? "?"}`}
-              pinColor={color} // 💡 Native marker tint
+              pinColor={color}
             >
               <MapShuttleMarker vehicle={v} color={color} />
               <Callout tooltip>

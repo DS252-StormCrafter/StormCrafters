@@ -1,40 +1,81 @@
-// src/api/ws.ts
 /**
- * Simple WebSocket wrapper for real-time vehicle updates.
- * - Automatically connects to backend /ws
- * - Reconnects if connection drops
- * - Calls `onMessage(data)` whenever a message is received
- * - Automatically unwraps nested { type, data } payloads
- * - Skips invalid packets safely (no app crash)
+ * WebSocket wrapper for real-time updates (vehicles + alerts)
+ * - Adds ?role=user|driver|admin in URL
+ * - Auto-reconnects on disconnect or network change
+ * - Filters malformed packets gracefully
+ * - Detects role fallback automatically from global auth state
+ * - Filters out alerts not meant for this role
  */
 
-const DEFAULT_API = "http://10.217.26.188:5001"; // ✅ replace with your backend IP or use env
+import NetInfo from "@react-native-community/netinfo";
+import { getCurrentAuthRole } from "../utils/role"; // optional utility (see below)
+
+const DEFAULT_API = "http://192.168.0.156:5001"; // ✅ your backend IP
 const WS_RETRY_INTERVAL = 5000;
 
-export function wsConnect(onMessage: (data: any) => void) {
-  let ws: WebSocket | null = null;
-  const wsUrl = DEFAULT_API.replace(/^http/, "ws") + "/ws";
+let isConnecting = false;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let currentWs: WebSocket | null = null;
+
+/**
+ * Connects to WebSocket with role identification.
+ * @param onMessage - callback for WS messages
+ * @param role - "user" | "driver" | "admin" (optional, auto-detected if omitted)
+ */
+export function wsConnect(
+  onMessage: (data: any) => void,
+  role: "user" | "driver" | "admin" = "user"
+) {
+  // Normalize role (force lowercase, singular form)
+  const normalizeRole = (r: string) => {
+    if (!r) return "user";
+    const s = r.toLowerCase().trim();
+    if (s === "users") return "user";
+    if (s === "drivers") return "driver";
+    if (s === "admins") return "admin";
+    if (!["user", "driver", "admin"].includes(s)) return "user";
+    return s;
+  };
+
+  const detectedRole = normalizeRole(role || getCurrentAuthRole() || "user");
+  const wsUrl =
+    DEFAULT_API.replace(/^http/, "ws") +
+    `/ws?role=${encodeURIComponent(detectedRole)}`;
 
   function connect() {
-    ws = new WebSocket(wsUrl);
-    console.log("🌐 Connecting to WebSocket:", wsUrl);
+    if (isConnecting) {
+      console.log("⏳ Skipping duplicate WebSocket connection attempt...");
+      return;
+    }
 
-    ws.onopen = () => console.log("✅ WebSocket connected");
+    isConnecting = true;
+    currentWs = new WebSocket(wsUrl);
+    console.log(`🌐 Connecting to WebSocket [role=${detectedRole}]:`, wsUrl);
 
-    ws.onerror = (err) => {
+    currentWs.onopen = () => {
+      console.log(`✅ WebSocket connected as ${detectedRole}`);
+      isConnecting = false;
+    };
+
+    currentWs.onerror = (err) => {
       console.warn("⚠️ WebSocket error:", err);
     };
 
-    ws.onclose = (evt) => {
-      console.warn(`❌ WebSocket closed (code ${evt.code}). Reconnecting in ${WS_RETRY_INTERVAL / 1000}s...`);
-      setTimeout(connect, WS_RETRY_INTERVAL);
+    currentWs.onclose = (evt) => {
+      isConnecting = false;
+      console.warn(
+        `❌ WS closed (${evt.code}). Reconnecting in ${
+          WS_RETRY_INTERVAL / 1000
+        }s...`
+      );
+
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, WS_RETRY_INTERVAL);
     };
 
-    ws.onmessage = (ev) => {
+    currentWs.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data);
-
-        // ✅ Unwrap backend payloads like { type: "vehicle", data: {...} }
         const payload = msg?.data ?? msg;
 
         if (!payload || typeof payload !== "object") {
@@ -42,30 +83,58 @@ export function wsConnect(onMessage: (data: any) => void) {
           return;
         }
 
-        // ✅ Basic coordinate sanity check
-        const lat = payload.lat ?? payload.location?.lat;
-        const lng = payload.lng ?? payload.location?.lng;
-        if (typeof lat !== "number" || typeof lng !== "number") {
-          console.warn("⚠️ Skipping packet with invalid coords:", payload);
-          return;
+        // ✅ Filter out alerts not meant for this role
+        if (msg.type === "alert") {
+          const target = (payload.target || "all").toString().toLowerCase();
+          if (
+            (target === "users" && detectedRole !== "user") ||
+            (target === "drivers" && detectedRole !== "driver")
+          ) {
+            console.log(
+              `🚫 Skipping alert for role mismatch: target=${target}, current=${detectedRole}`
+            );
+            return;
+          }
         }
 
-        onMessage(payload);
+        // ✅ Skip invalid coords for vehicles
+        if (msg.type === "vehicle") {
+          const lat = payload.lat ?? payload.location?.lat;
+          const lng = payload.lng ?? payload.location?.lng;
+          if (typeof lat !== "number" || typeof lng !== "number") {
+            console.warn("⚠️ Skipping vehicle with invalid coords:", payload);
+            return;
+          }
+        }
+
+        // ✅ Deliver clean message to consumer callback
+        onMessage({ type: msg.type, ...payload });
       } catch (err) {
-        console.warn("⚠️ WebSocket parse error:", err);
+        console.warn("⚠️ WS parse error:", err);
       }
     };
   }
 
-  // Start connection
+  // Initial connection
   connect();
 
-  // Return cleanup function
-  return () => {
-    if (ws) {
-      console.log("🔌 WebSocket connection closed manually.");
-      ws.close();
-      ws = null;
+  // ✅ Monitor network changes (auto-reconnect when online again)
+  const unsubscribeNetInfo = NetInfo.addEventListener((state) => {
+    if (state.isConnected) {
+      console.log("🌍 Network reconnected, re-establishing WebSocket...");
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, 1000);
     }
+  });
+
+  // ✅ Cleanup
+  return () => {
+    console.log("🔌 Closing WebSocket manually.");
+    if (currentWs) {
+      currentWs.close();
+      currentWs = null;
+    }
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    unsubscribeNetInfo();
   };
 }

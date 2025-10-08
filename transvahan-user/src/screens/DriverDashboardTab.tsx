@@ -14,7 +14,7 @@ import * as Location from "expo-location";
 import axios from "axios";
 import { useAuth } from "../auth/authContext";
 
-const API_BASE_URL = "http://10.217.26.188:5001";
+const API_BASE_URL = "http://192.168.0.156:5001";
 const ASPECT_RATIO = Dimensions.get("window").width / Dimensions.get("window").height;
 
 export default function DriverDashboardTab() {

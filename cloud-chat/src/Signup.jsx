@@ -18,7 +18,7 @@ function Signup({ onSignup, onSwitchToLogin }) {
     } else {
       setError('');
       try {
-        const res = await fetch('http://10.217.26.188:5001/api/signup', {
+        const res = await fetch('http://192.168.0.156:5001/api/signup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })

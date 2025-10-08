@@ -5,6 +5,7 @@ import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import * as Location from "expo-location";
 import { useAuth } from "../auth/authContext";
 import { apiClient } from "../api/client";
+import { wsConnect } from "../api/ws"; // ✅ include ws for driver alerts
 
 const ASPECT_RATIO = Dimensions.get("window").width / Dimensions.get("window").height;
 
@@ -17,7 +18,6 @@ export default function DriverMapTab() {
   const [capacity] = useState(4);
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  // 🚐 Replace with driver’s selected vehicle ID
   const [vehicleId] = useState<string>("BUS-101");
 
   // 📍 LOCATION + TELEMETRY LOOP
@@ -37,12 +37,12 @@ export default function DriverMapTab() {
       const locationSub = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
-          timeInterval: 10000, // every 10 seconds
+          timeInterval: 10000,
           distanceInterval: 10,
         },
         async (pos) => {
           setLocation(pos);
-          if (!tripActive) return; // only send when trip active
+          if (!tripActive) return;
 
           try {
             await apiClient.sendTelemetry({
@@ -66,6 +66,18 @@ export default function DriverMapTab() {
       };
     })();
   }, [token, tripActive, occupancy]);
+
+  // 🛰️ DRIVER ALERTS VIA WEBSOCKET
+  useEffect(() => {
+    const cleanup = wsConnect((msg) => {
+      if (msg.type === "alert") {
+        console.log("📢 Driver received alert:", msg.message);
+        Alert.alert("⚠️ Admin Alert", msg.message);
+      }
+    }, "driver");
+
+    return cleanup;
+  }, []);
 
   // 🧭 Trip controls
   const startTrip = async () => {

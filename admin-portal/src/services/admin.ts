@@ -1,18 +1,42 @@
 // admin-portal/src/services/admin.ts
 import axios from "axios";
 
-const API = import.meta.env.VITE_API_BASE || "http://10.217.26.188:5001";
+// ==========================================================
+// 🌐 BASE API CONFIG
+// ==========================================================
+const API = import.meta.env.VITE_API_BASE || "http://192.168.0.156:5001";
 
 const api = axios.create({
   baseURL: API,
   headers: { "Content-Type": "application/json" },
 });
 
-// ✅ Attach token dynamically
+// ==========================================================
+// 🔐 AUTH TOKEN HANDLING
+// ==========================================================
+
+// ✅ Legacy-compatible token setter (used by Drivers.tsx and others)
 export function setAuthToken(token?: string) {
-  if (token) api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-  else delete api.defaults.headers.common["Authorization"];
+  if (token) {
+    localStorage.setItem("admin_token", token);
+    api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+  } else {
+    localStorage.removeItem("admin_token");
+    delete api.defaults.headers.common["Authorization"];
+  }
 }
+
+// ✅ Auto-attach token from localStorage or sessionStorage
+api.interceptors.request.use((config) => {
+  const token =
+    localStorage.getItem("admin_token") ||
+    sessionStorage.getItem("admin_token");
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 // ==========================================================
 // 👥 AUTH
@@ -24,15 +48,18 @@ export const adminLogin = (payload: { email: string; password: string }) =>
 // 🧑‍✈️ DRIVERS
 // ==========================================================
 export const fetchDrivers = () => api.get("/admin/drivers");
+
 export const createDriver = (payload: {
   name: string;
   email: string;
   password: string;
 }) => api.post("/admin/drivers", payload);
+
 export const updateDriver = (
   id: string,
   payload: Partial<{ name: string; email: string; password: string }>
 ) => api.put(`/admin/drivers/${id}`, payload);
+
 export const deleteDriver = (id: string) => api.delete(`/admin/drivers/${id}`);
 
 // ==========================================================
@@ -69,3 +96,8 @@ export const deleteAlert = (id: string) => api.delete(`/alerts/${id}`);
 
 // ✅ Resolve alert
 export const resolveAlert = (id: string) => api.patch(`/alerts/${id}/resolve`);
+
+// ==========================================================
+// 🧩 DEFAULT EXPORT (optional for convenience)
+// ==========================================================
+export default api;

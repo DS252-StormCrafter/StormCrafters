@@ -6,7 +6,7 @@ import { API, LoginRequest, LoginResponse } from "./types";
 import { Route, Vehicle, NextArrival } from "../types";
 import { wsConnect } from "./ws";
 
-const API_BASE_URL = Constants?.expoConfig?.extra?.API_BASE_URL || "http://10.217.26.188:5001";
+const API_BASE_URL = Constants?.expoConfig?.extra?.API_BASE_URL || "http://192.168.0.156:5001";
 const WS_URL = API_BASE_URL.replace(/^http/, "ws") + "/ws";
 
 const http = axios.create({ baseURL: API_BASE_URL, timeout: 10000 });

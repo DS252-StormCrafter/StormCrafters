@@ -7,8 +7,11 @@ import {
   resolveAlert,
 } from "../services/admin";
 
+// ==========================================================
+// 🌐 WebSocket connection for live alerts
+// ==========================================================
 const WS_URL =
-  (import.meta.env.VITE_API_BASE || "http://10.217.26.188:5001").replace(
+  (import.meta.env.VITE_API_BASE || "http://192.168.0.156:5001").replace(
     /^http/,
     "ws"
   ) + "/ws";
@@ -20,7 +23,6 @@ export default function Notifications() {
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
 
-  // Filters
   const [filterTarget, setFilterTarget] = useState<"all" | "users" | "drivers">(
     "all"
   );
@@ -29,18 +31,21 @@ export default function Notifications() {
   );
   const [searchText, setSearchText] = useState("");
 
-  // ======================================================
-  // Initial Fetch + WebSocket Setup
-  // ======================================================
+  // ==========================================================
+  // 🔁 Fetch alerts
+  // ==========================================================
   const loadAlerts = async () => {
     try {
       const res = await fetchNotifications();
-      setAlerts(res.data || []);
+      setAlerts(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error("❌ Failed to fetch alerts:", err);
     }
   };
 
+  // ==========================================================
+  // 🛰️ Initialize WebSocket for real-time sync
+  // ==========================================================
   useEffect(() => {
     loadAlerts();
 
@@ -56,6 +61,12 @@ export default function Notifications() {
           setAlerts((prev) => [msg.data, ...prev]);
         } else if (msg.type === "alert_deleted") {
           setAlerts((prev) => prev.filter((a) => a.id !== msg.data.id));
+        } else if (msg.type === "alert_resolved") {
+          setAlerts((prev) =>
+            prev.map((a) =>
+              a.id === msg.data.id ? { ...a, resolved: true } : a
+            )
+          );
         }
       } catch (err) {
         console.warn("⚠️ WS parse error:", err);
@@ -70,9 +81,9 @@ export default function Notifications() {
     return () => ws.close();
   }, []);
 
-  // ======================================================
-  // Create, Resolve, Delete Alerts
-  // ======================================================
+  // ==========================================================
+  // 📢 Send new alert
+  // ==========================================================
   const sendAlert = async () => {
     if (!message.trim()) return alert("⚠️ Message is required");
     setLoading(true);
@@ -80,14 +91,18 @@ export default function Notifications() {
       await createAlert({ message, target });
       setMessage("");
       await loadAlerts();
+      alert("✅ Alert sent successfully");
     } catch (err) {
       console.error("❌ Failed to send alert:", err);
-      alert("Failed to send alert");
+      alert("Failed to send alert. Check console.");
     } finally {
       setLoading(false);
     }
   };
 
+  // ==========================================================
+  // ✅ Resolve & Delete handlers
+  // ==========================================================
   const markResolved = async (id: string) => {
     try {
       await resolveAlert(id);
@@ -106,13 +121,12 @@ export default function Notifications() {
       setAlerts((prev) => prev.filter((a) => a.id !== id));
     } catch (err) {
       console.error("❌ Failed to delete alert:", err);
-      alert("Failed to delete alert");
     }
   };
 
-  // ======================================================
-  // Computed Filtered + Searched List
-  // ======================================================
+  // ==========================================================
+  // 🔍 Filtered + Sorted alerts
+  // ==========================================================
   const filteredAlerts = useMemo(() => {
     return alerts
       .filter((a) =>
@@ -136,15 +150,15 @@ export default function Notifications() {
       );
   }, [alerts, filterTarget, filterStatus, searchText]);
 
-  // ======================================================
-  // UI
-  // ======================================================
+  // ==========================================================
+  // 🧱 UI
+  // ==========================================================
   return (
-    <div>
+    <div style={{ padding: 20 }}>
       <h2>🔔 System Alerts</h2>
 
-      {/* Create Alert Form */}
-      <div className="card form-row" style={{ marginBottom: "1rem" }}>
+      {/* CREATE */}
+      <div className="card form-row" style={{ marginBottom: 12 }}>
         <input
           placeholder="Alert message (e.g., Red Line temporarily down)"
           value={message}
@@ -160,31 +174,25 @@ export default function Notifications() {
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="card form-row" style={{ marginBottom: "1rem" }}>
-        <label>
-          Filter Target:{" "}
-          <select
-            value={filterTarget}
-            onChange={(e) => setFilterTarget(e.target.value as any)}
-          >
-            <option value="all">All</option>
-            <option value="users">Users</option>
-            <option value="drivers">Drivers</option>
-          </select>
-        </label>
+      {/* FILTERS */}
+      <div className="card form-row" style={{ marginBottom: 12 }}>
+        <select
+          value={filterTarget}
+          onChange={(e) => setFilterTarget(e.target.value as any)}
+        >
+          <option value="all">All</option>
+          <option value="users">Users</option>
+          <option value="drivers">Drivers</option>
+        </select>
 
-        <label>
-          Status:{" "}
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as any)}
-          >
-            <option value="all">All</option>
-            <option value="active">Active</option>
-            <option value="resolved">Resolved</option>
-          </select>
-        </label>
+        <select
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value as any)}
+        >
+          <option value="all">All</option>
+          <option value="active">Active</option>
+          <option value="resolved">Resolved</option>
+        </select>
 
         <input
           placeholder="Search message..."
@@ -194,11 +202,9 @@ export default function Notifications() {
         <span>{connected ? "🟢 Live" : "🔴 Offline"}</span>
       </div>
 
-      {/* Table */}
+      {/* TABLE */}
       <div className="card">
-        <h3>
-          Alerts ({filteredAlerts.length})
-        </h3>
+        <h3>Alerts ({filteredAlerts.length})</h3>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -221,12 +227,12 @@ export default function Notifications() {
                 <tr
                   key={a.id}
                   style={{
-                    background: a.resolved ? "#e0ffe0" : "#fff",
+                    background: a.resolved ? "#e8ffe8" : "#fff",
                     borderBottom: "1px solid #eee",
                   }}
                 >
                   <td>{a.message}</td>
-                  <td>{a.target}</td>
+                  <td>{a.target || "all"}</td>
                   <td style={{ color: a.resolved ? "#16a34a" : "#dc2626" }}>
                     {a.resolved ? "Resolved ✅" : "Active ⚠️"}
                   </td>
@@ -239,7 +245,7 @@ export default function Notifications() {
                     {!a.resolved && (
                       <button
                         className="btn"
-                        style={{ background: "#16a34a", marginRight: "5px" }}
+                        style={{ background: "#16a34a", marginRight: 5 }}
                         onClick={() => markResolved(a.id)}
                       >
                         Resolve
