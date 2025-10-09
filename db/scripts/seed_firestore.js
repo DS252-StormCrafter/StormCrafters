@@ -23,7 +23,7 @@ const seedFolder = path.resolve("../seed");
 if (process.env.FIRESTORE_EMULATOR_HOST) {
   console.log(`🔥 Using Firestore Emulator at ${process.env.FIRESTORE_EMULATOR_HOST}`);
   admin.initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID || "fir-transvahan",
+    projectId: process.env.FIREBASE_PROJECT_ID || "midterm-transvahan",
   });
 } else {
   console.log("☁️ Using Live Firestore Project");

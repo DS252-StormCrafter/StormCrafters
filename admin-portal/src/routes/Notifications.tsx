@@ -7,14 +7,9 @@ import {
   resolveAlert,
 } from "../services/admin";
 
-// ==========================================================
-// 🌐 WebSocket connection for live alerts
-// ==========================================================
 const WS_URL =
-  (import.meta.env.VITE_API_BASE || "http://10.24.240.85:5001").replace(
-    /^http/,
-    "ws"
-  ) + "/ws";
+  (import.meta.env.VITE_API_BASE || "http://10.81.30.75:5001").replace(/^http/, "ws") +
+  "/ws";
 
 export default function Notifications() {
   const [alerts, setAlerts] = useState<any[]>([]);
@@ -23,17 +18,10 @@ export default function Notifications() {
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
 
-  const [filterTarget, setFilterTarget] = useState<"all" | "users" | "drivers">(
-    "all"
-  );
-  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "resolved">(
-    "all"
-  );
+  const [filterTarget, setFilterTarget] = useState<"all" | "users" | "drivers">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "resolved">("all");
   const [searchText, setSearchText] = useState("");
 
-  // ==========================================================
-  // 🔁 Fetch alerts
-  // ==========================================================
   const loadAlerts = async () => {
     try {
       const res = await fetchNotifications();
@@ -43,28 +31,42 @@ export default function Notifications() {
     }
   };
 
-  // ==========================================================
-  // 🛰️ Initialize WebSocket for real-time sync
-  // ==========================================================
   useEffect(() => {
     loadAlerts();
 
+    const token = localStorage.getItem("token");
     const ws = new WebSocket(WS_URL);
+
     ws.onopen = () => {
       console.log("🔔 WebSocket connected");
       setConnected(true);
+
+      if (token) {
+        ws.send(JSON.stringify({ type: "auth", token }));
+        console.log("📨 Sent auth for admin");
+      }
     };
+
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === "alert") {
-          setAlerts((prev) => [msg.data, ...prev]);
-        } else if (msg.type === "alert_deleted") {
-          setAlerts((prev) => prev.filter((a) => a.id !== msg.data.id));
-        } else if (msg.type === "alert_resolved") {
+
+        const type = msg.type;
+        const data = msg.data ?? {};
+
+        if (type === "alert_created" || type === "alert") {
+          console.log("📥 New alert from WS:", data);
+          setAlerts((prev) => {
+            // avoid duplicates
+            if (prev.find((a) => a.id === data.id)) return prev;
+            return [data, ...prev];
+          });
+        } else if (type === "alert_deleted") {
+          setAlerts((prev) => prev.filter((a) => a.id !== data.id));
+        } else if (type === "alert_resolved") {
           setAlerts((prev) =>
             prev.map((a) =>
-              a.id === msg.data.id ? { ...a, resolved: true } : a
+              a.id === data.id ? { ...a, resolved: true } : a
             )
           );
         }
@@ -72,6 +74,7 @@ export default function Notifications() {
         console.warn("⚠️ WS parse error:", err);
       }
     };
+
     ws.onclose = () => {
       console.warn("🔕 WebSocket disconnected");
       setConnected(false);
@@ -81,9 +84,6 @@ export default function Notifications() {
     return () => ws.close();
   }, []);
 
-  // ==========================================================
-  // 📢 Send new alert
-  // ==========================================================
   const sendAlert = async () => {
     if (!message.trim()) return alert("⚠️ Message is required");
     setLoading(true);
@@ -100,9 +100,6 @@ export default function Notifications() {
     }
   };
 
-  // ==========================================================
-  // ✅ Resolve & Delete handlers
-  // ==========================================================
   const markResolved = async (id: string) => {
     try {
       await resolveAlert(id);
@@ -124,9 +121,6 @@ export default function Notifications() {
     }
   };
 
-  // ==========================================================
-  // 🔍 Filtered + Sorted alerts
-  // ==========================================================
   const filteredAlerts = useMemo(() => {
     return alerts
       .filter((a) =>
@@ -150,9 +144,6 @@ export default function Notifications() {
       );
   }, [alerts, filterTarget, filterStatus, searchText]);
 
-  // ==========================================================
-  // 🧱 UI
-  // ==========================================================
   return (
     <div style={{ padding: 20 }}>
       <h2>🔔 System Alerts</h2>
@@ -160,7 +151,7 @@ export default function Notifications() {
       {/* CREATE */}
       <div className="card form-row" style={{ marginBottom: 12 }}>
         <input
-          placeholder="Alert message (e.g., Red Line temporarily down)"
+          placeholder="Alert message..."
           value={message}
           onChange={(e) => setMessage(e.target.value)}
         />
@@ -195,7 +186,7 @@ export default function Notifications() {
         </select>
 
         <input
-          placeholder="Search message..."
+          placeholder="Search..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
         />

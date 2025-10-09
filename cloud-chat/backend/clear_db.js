@@ -1,7 +1,7 @@
 
 import mongoose from 'mongoose';
 
-await mongoose.connect('mongodb://10.24.240.85:27017/chat_whatsapp', { useNewUrlParser: true, useUnifiedTopology: true });
+await mongoose.connect('mongodb://10.81.30.75:27017/chat_whatsapp', { useNewUrlParser: true, useUnifiedTopology: true });
 
 const Chat = mongoose.model('Chat', new mongoose.Schema({}, { strict: false }));
 const User = mongoose.model('User', new mongoose.Schema({}, { strict: false }));

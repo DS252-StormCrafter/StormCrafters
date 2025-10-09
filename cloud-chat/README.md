@@ -12,4 +12,4 @@ Currently, two official plugins are available:
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
 
 # WhatsApp Cloud Chat Deployment
-To deploy on cloud, replace 10.24.240.85 URL with Public IP (for example :- Replace http://10.24.240.85:5001 with http://13.235.50.158:5001/)
+To deploy on cloud, replace 10.81.30.75 URL with Public IP (for example :- Replace http://10.81.30.75:5001 with http://13.235.50.158:5001/)

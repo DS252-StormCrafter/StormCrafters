@@ -22,7 +22,7 @@ function ChatUI({ user }) {
   const socketRef = useRef(null);
   // Setup socket connection
   useEffect(() => {
-    socketRef.current = io('http://10.24.240.85:5001');
+    socketRef.current = io('http://10.81.30.75:5001');
     return () => {
       if (socketRef.current) socketRef.current.disconnect();
     };
@@ -30,7 +30,7 @@ function ChatUI({ user }) {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`http://10.24.240.85:5001/api/chats?username=${user}`)
+    fetch(`http://10.81.30.75:5001/api/chats?username=${user}`)
       .then(res => res.json())
       .then(data => {
         // Each chat has a name (the other user's username)
@@ -53,7 +53,7 @@ function ChatUI({ user }) {
     if (socketRef.current) {
       socketRef.current.emit('join', chatId);
     }
-    fetch(`http://10.24.240.85:5001/api/messages/${chatId}?username=${user}`)
+    fetch(`http://10.81.30.75:5001/api/messages/${chatId}?username=${user}`)
       .then(res => res.json())
       .then(data => {
         setMessages(data);
@@ -82,7 +82,7 @@ function ChatUI({ user }) {
     if (input.trim() && selectedContact) {
       const chatId = getChatId(user, selectedContact);
       try {
-        const res = await fetch('http://10.24.240.85:5001/api/messages', {
+        const res = await fetch('http://10.81.30.75:5001/api/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat: chatId, sender: user, text: input })
@@ -101,7 +101,7 @@ function ChatUI({ user }) {
     // Delete chat handler (per-user)
     const handleDeleteChat = async () => {
       if (!selectedContact) return;
-      await fetch('http://10.24.240.85:5001/api/messages/deleteForUser', {
+      await fetch('http://10.81.30.75:5001/api/messages/deleteForUser', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat: getChatId(user, selectedContact), username: user })
@@ -148,7 +148,7 @@ function ChatUI({ user }) {
                   setCreateError('');
                   if (newChatName && !contacts.some(c => c.name.toLowerCase() === newChatName.toLowerCase())) {
                     try {
-                      const res = await fetch('http://10.24.240.85:5001/api/chats', {
+                      const res = await fetch('http://10.81.30.75:5001/api/chats', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name: newChatName })

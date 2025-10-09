@@ -19,6 +19,8 @@ export default function authRoutes(db) {
   // =============== USER SIGNUP =============================
   // =========================================================
   router.post("/signup", async (req, res) => {
+    console.log("📥 /auth/signup request received at:", new Date().toISOString());
+    console.log("Payload:", req.body);
     try {
       const { email, name, password, passwordHash } = req.body;
 
@@ -31,7 +33,7 @@ export default function authRoutes(db) {
       const existing = await userRef.get();
       if (existing.exists)
         return res.status(400).json({ error: "User already exists" });
-
+      console.log("User can exist")
       // Hash password securely before saving
       const hashedPassword = await bcrypt.hash(rawPassword, 10);
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -45,7 +47,7 @@ export default function authRoutes(db) {
         otp,
         createdAt: new Date().toISOString(),
       });
-
+      console.log("Need to send otp now")
       // Optional: send OTP email if EMAIL_USER is configured
       if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
         await transporter.sendMail({

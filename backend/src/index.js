@@ -39,7 +39,7 @@ function initFirebase() {
   if (admin.apps.length) return admin.app();
 
   const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST?.trim();
-  const projectId = process.env.FIREBASE_PROJECT_ID?.trim() || "fir-transvahan";
+  const projectId = process.env.FIREBASE_PROJECT_ID?.trim() || "midterm-transvahan";
 
   if (emulatorHost) {
     console.log(`🔥 Using Firestore Emulator: ${emulatorHost}`);
@@ -91,7 +91,7 @@ console.log("🛠️ Routes loaded successfully.");
 // -----------------------------------------------------------------------------
 const PORT = process.env.PORT || 5001;
 const server = app.listen(PORT, () =>
-  console.log(`🚀 Backend running on http://10.24.240.85:${PORT}`)
+  console.log(`🚀 Backend running on http://10.81.30.75:${PORT}`)
 );
 
 const wss = new WebSocketServer({ noServer: true });
@@ -129,10 +129,10 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 // -----------------------------------------------------------------------------
-// WebSocket connection handler — AUTH-FIRST approach
+// WebSocket connection handler — FINAL FIXED VERSION ✅
 // -----------------------------------------------------------------------------
 wss.on("connection", (ws, req) => {
-  let roleGuess = req.roleParam || "user"; // quick fallback
+  let roleGuess = req.roleParam || "user";
   const clientIp =
     req.headers["x-forwarded-for"]?.split(",")[0] ||
     req.socket.remoteAddress ||
@@ -142,12 +142,16 @@ wss.on("connection", (ws, req) => {
   let authTimer = null;
   let authenticated = false;
 
-  // helper: start vehicle broadcast and send welcome
   const startBroadcast = () => {
     if (broadcastInterval) return;
+
+    // ✅ Persist role on multiple known keys for detectClientRole
     ws.userRole = roleGuess;
+    ws.role = ws.userRole;
+    ws._roleHint = ws.userRole;
+
     console.log(`📡 WebSocket connected [role=${ws.userRole}, ip=${clientIp}]`);
-    // welcome
+
     try {
       ws.send(
         JSON.stringify({
@@ -155,11 +159,8 @@ wss.on("connection", (ws, req) => {
           data: { role: ws.userRole, ip: clientIp, time: new Date().toISOString() },
         })
       );
-    } catch (e) {
-      /* ignore send errors */
-    }
+    } catch (e) {}
 
-    // begin sending vehicles
     broadcastInterval = setInterval(async () => {
       try {
         const snapshot = await db.collection("vehicles").get();
@@ -190,7 +191,6 @@ wss.on("connection", (ws, req) => {
     }, 5001);
   };
 
-  // auth timeout — if client doesn't authenticate within N ms, proceed with guessed role
   authTimer = setTimeout(() => {
     if (!authenticated) {
       console.log(
@@ -198,21 +198,16 @@ wss.on("connection", (ws, req) => {
       );
       startBroadcast();
     }
-  }, 4000); // 4 seconds
+  }, 4000);
 
-  // process incoming messages (expecting initial auth)
   ws.on("message", (raw) => {
-    // only accept text JSON messages
     try {
-      const text = raw.toString();
-      const msg = JSON.parse(text);
+      const msg = JSON.parse(raw.toString());
       if (!msg || typeof msg !== "object") return;
 
-      // AUTH message from client: { type: "auth", token: "..." }
       if (msg.type === "auth") {
         clearTimeout(authTimer);
-
-        const token = msg.token || msg.jwt || msg.authToken || null;
+        const token = msg.token || msg.jwt || msg.authToken;
         if (!token) {
           console.log("⚠️ WS auth message missing token — proceeding with guess role.");
           startBroadcast();
@@ -223,62 +218,45 @@ wss.on("connection", (ws, req) => {
           const secret = process.env.JWT_SECRET || "secret";
           const decoded = jwt.verify(token, secret);
 
-          // deduce role from token payload
-          const tokenRole =
-            (decoded.role || decoded.userRole || decoded.type || decoded.roleName || "")
-              .toString()
-              .toLowerCase()
-              .trim();
+          const tokenRole = (decoded.role || decoded.userRole || decoded.type || "")
+            .toString()
+            .toLowerCase()
+            .trim();
 
           if (["driver", "user", "admin"].includes(tokenRole)) {
             roleGuess = tokenRole;
-          } else {
-            // keep previous guess if token doesn't include role
           }
 
-          // attach user info to ws
           ws.user = decoded;
-          authenticated = true;
           ws.userRole = roleGuess;
+          ws.role = ws.userRole;
+          ws._roleHint = ws.userRole;
+          authenticated = true;
 
-          // send ack
-          try {
-            ws.send(
-              JSON.stringify({
-                type: "auth_ack",
-                success: true,
-                role: ws.userRole,
-              })
-            );
-          } catch (err) {
-            /* ignore */
-          }
-
-          console.log(
-            `🔐 Authenticated WS [role=${ws.userRole}, ip=${clientIp}] via token`
+          ws.send(
+            JSON.stringify({
+              type: "auth_ack",
+              success: true,
+              role: ws.userRole,
+            })
           );
+
+          console.log(`🔐 Authenticated WS [role=${ws.userRole}, ip=${clientIp}] via token`);
         } catch (err) {
           console.warn("❌ WS token verification failed:", err.message);
-          try {
-            ws.send(
-              JSON.stringify({ type: "auth_ack", success: false, error: "invalid_token" })
-            );
-          } catch (e) {}
+          ws.send(
+            JSON.stringify({ type: "auth_ack", success: false, error: "invalid_token" })
+          );
         } finally {
           startBroadcast();
         }
         return;
       }
 
-      // handle keep-alive/ping messages (optionally)
       if (msg.type === "ping") {
-        try {
-          ws.send(JSON.stringify({ type: "pong", time: Date.now() }));
-        } catch (e) {}
+        ws.send(JSON.stringify({ type: "pong", time: Date.now() }));
         return;
       }
-
-      // any other client messages — ignore for now or log
     } catch (err) {
       console.warn("⚠️ WS message parse error:", err);
     }
@@ -287,7 +265,7 @@ wss.on("connection", (ws, req) => {
   ws.on("close", () => {
     if (authTimer) clearTimeout(authTimer);
     if (broadcastInterval) clearInterval(broadcastInterval);
-    console.log(`❌ WebSocket disconnected [role=${ws.userRole || roleGuess}, ip=${clientIp}]`);
+    console.log(`❌ WebSocket disconnected [role=${ws.userRole}, ip=${clientIp}]`);
   });
 
   ws.on("error", (err) => {
@@ -295,22 +273,29 @@ wss.on("connection", (ws, req) => {
   });
 });
 
+
 // -----------------------------------------------------------------------------
 // Alerts mount (unchanged)
  // -----------------------------------------------------------------------------
-app.use("/alerts", (req, res, next) => alertsRoutes(db, wss)(req, res, next));
-console.log("🔔 Alerts route mounted.");
+
+// create the router only once (so it shares same wss reference)
+const alertsRouter = alertsRoutes(db, wss);
+app.use("/alerts", alertsRouter);
+
+console.log("🔔 Alerts route mounted (persistent instance).");
 
 // -----------------------------------------------------------------------------
 // Health check (unchanged)
  // -----------------------------------------------------------------------------
 app.get("/health", async (req, res) => {
   try {
-    await db.collection("__healthcheck__").limit(1).get();
+    // just ping a normal collection instead
+    await db.collection("users").limit(1).get();
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
 
 export { db, wss };
