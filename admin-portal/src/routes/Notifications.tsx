@@ -11,7 +11,7 @@ import {
 // 🌐 WebSocket connection for live alerts
 // ==========================================================
 const WS_URL =
-  (import.meta.env.VITE_API_BASE || "http://10.81.30.77:5001").replace(
+  (import.meta.env.VITE_API_BASE || "http://10.24.240.85:5001").replace(
     /^http/,
     "ws"
   ) + "/ws";

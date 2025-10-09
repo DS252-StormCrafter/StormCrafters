@@ -1,31 +1,31 @@
-// src/api/client.ts
+/**
+ * src/api/client.ts
+ * FINAL MERGED VERSION ✅
+ * - Keeps all telemetry & REST endpoints
+ * - Delegates all WebSocket subscriptions (vehicles/alerts) to ws.ts (role-aware)
+ */
+
 import axios from "axios";
 import Constants from "expo-constants";
 import { endpoints } from "./endpoints";
 import { API, LoginRequest, LoginResponse } from "./types";
 import { Route, Vehicle, NextArrival } from "../types";
+import { wsConnect } from "./ws"; // ✅ NEW unified WS handler
 
 // =============================================
 // 💫 NGROK / BACKEND CONFIGURATION
 // =============================================
 
-// ⚙️ Backend ngrok URL (currently pointing to your Express backend)
-// 👉 Replace this with your cloud URL once deployed (e.g. https://your-backend.com)
 const NGROK_BACKEND = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
+const LOCAL_API_URL = "http://10.24.240.85:5001";
 
-// Fallback to local backend (for laptop testing only)
-const LOCAL_API_URL = "http://10.81.30.77:5001";
-
-// ✅ Prefer ngrok backend when available
 const API_BASE_URL =
   NGROK_BACKEND && NGROK_BACKEND.trim() !== ""
     ? NGROK_BACKEND
     : Constants?.expoConfig?.extra?.API_BASE_URL || LOCAL_API_URL;
 
-// ✅ Auto-generate WebSocket URL (handles http→ws and https→wss)
 const WS_URL =
   API_BASE_URL.replace(/^https?:/, API_BASE_URL.startsWith("https") ? "wss:" : "ws:") + "/ws";
-
 
 // =============================================
 // ⚡ AXIOS INSTANCE + AUTH TOKEN HANDLING
@@ -92,14 +92,22 @@ export const apiClient: API & {
     return data;
   },
 
-  // VEHICLE WEBSOCKET SUBSCRIPTION
-  subscribeVehicles(cb) {
-    const socket = new WebSocket(WS_URL);
-    socket.onmessage = (event) => {
-      const parsed = JSON.parse(event.data);
-      if (parsed.type === "vehicle") cb(parsed.data);
-    };
-    return () => socket.close();
+  // ✅ VEHICLE WEBSOCKET SUBSCRIPTION (via ws.ts)
+  async subscribeVehicles(cb) {
+    console.log("🚘 [WS] Subscribing to vehicles via ws.ts ...");
+    const disconnect = await wsConnect((msg) => {
+      if (msg.type === "vehicle") cb(msg);
+    });
+    return disconnect;
+  },
+
+  // ✅ ALERTS SUBSCRIPTION (via ws.ts)
+  async subscribeAlerts(cb) {
+    console.log("🔔 [WS] Subscribing to alerts via ws.ts ...");
+    const disconnect = await wsConnect((msg) => {
+      if (msg.type === "alert") cb(msg);
+    });
+    return disconnect;
   },
 
   // DRIVER TELEMETRY
@@ -120,19 +128,10 @@ export const apiClient: API & {
     return data;
   },
 
-  // ✅ ALERTS
+  // ✅ ALERTS (REST fallback)
   async getAlerts() {
     const { data } = await http.get("/alerts");
     return data;
-  },
-
-  subscribeAlerts(cb) {
-    const socket = new WebSocket(WS_URL);
-    socket.onmessage = (event) => {
-      const parsed = JSON.parse(event.data);
-      if (parsed.type === "alert") cb(parsed.data);
-    };
-    return () => socket.close();
   },
 };
 

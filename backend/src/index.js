@@ -1,8 +1,11 @@
 /**
- * Full backend entrypoint (FINAL FIXED VERSION ✅)
- * - Robust dotenv + emulator detection
- * - WebSocket role tracking + alert filtering
- * - Route wiring (auth, vehicle, routes, feedback, alerts, admin, driver)
+ * backend/src/index.js
+ * FINAL — WebSocket auth-first approach (ready to paste)
+ *
+ * - Waits for initial { type: 'auth', token: '...' } message from client
+ * - Verifies JWT and sets ws.userRole from token (role|userRole|type)
+ * - Falls back to ?role= or /ws/:role or header if auth not sent in timeout
+ * - Keeps all previous features intact (vehicle broadcast, alerts route, etc.)
  */
 
 import express from "express";
@@ -10,13 +13,13 @@ import admin from "firebase-admin";
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath, URL } from "url";
+import { fileURLToPath } from "url";
 import cors from "cors";
 import { WebSocketServer } from "ws";
-import * as querystring from "querystring"; // ✅ FIX: Safe role parsing for Node ESM
+import * as querystring from "querystring";
+import jwt from "jsonwebtoken";
 import { authenticate } from "./middleware/auth.js";
 
-// Routes
 import authRoutes from "./routes/auth.js";
 import vehicleRoutes from "./routes/vehicle.js";
 import routeRoutes from "./routes/route.js";
@@ -25,23 +28,22 @@ import alertsRoutes from "./routes/alerts.js";
 import adminRoutes from "./routes/admin.js";
 import driverRoutes from "./routes/driver.js";
 
-// Environment setup
+// -----------------------------------------------------------------------------
+// Environment + Firebase
+// -----------------------------------------------------------------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
-// -----------------------------------------------------------------------------
-// Firebase Initialization
-// -----------------------------------------------------------------------------
 function initFirebase() {
   if (admin.apps.length) return admin.app();
 
   const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST?.trim();
-  const projectIdFromEnv = process.env.FIREBASE_PROJECT_ID?.trim() || "fir-transvahan";
+  const projectId = process.env.FIREBASE_PROJECT_ID?.trim() || "fir-transvahan";
 
   if (emulatorHost) {
     console.log(`🔥 Using Firestore Emulator: ${emulatorHost}`);
-    admin.initializeApp({ projectId: projectIdFromEnv });
+    admin.initializeApp({ projectId });
     const db = admin.firestore();
     db.settings({ host: emulatorHost, ssl: false });
     return admin.app();
@@ -59,7 +61,7 @@ function initFirebase() {
   const serviceAccount = JSON.parse(fs.readFileSync(servicePath, "utf8"));
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    projectId: serviceAccount.project_id || projectIdFromEnv,
+    projectId: serviceAccount.project_id || projectId,
   });
   console.log(`☁️ Firebase initialized (projectId=${serviceAccount.project_id})`);
   return admin.app();
@@ -69,112 +71,239 @@ initFirebase();
 const db = admin.firestore();
 
 // -----------------------------------------------------------------------------
-// Express setup
-// -----------------------------------------------------------------------------
+// Express setup (unchanged behavior)
+ // -----------------------------------------------------------------------------
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
-// Routes
 app.use("/auth", authRoutes(db));
 app.use("/vehicle", authenticate, vehicleRoutes(db));
 app.use("/routes", authenticate, routeRoutes(db));
 app.use("/feedback", authenticate, feedbackRoutes(db));
 app.use("/admin", authenticate, adminRoutes(db));
-app.use("/driver", driverRoutes(db)); // driver handles own auth logic
+app.use("/driver", driverRoutes(db));
 
 console.log("🛠️ Routes loaded successfully.");
 
 // -----------------------------------------------------------------------------
-// Start server + WebSocket
+// HTTP + WebSocket Server
 // -----------------------------------------------------------------------------
 const PORT = process.env.PORT || 5001;
 const server = app.listen(PORT, () =>
-  console.log(`🚀 Backend running on http://192.168.0.156:${PORT}`)
+  console.log(`🚀 Backend running on http://10.24.240.85:${PORT}`)
 );
 
-const wss = new WebSocketServer({ server, path: "/ws" });
+const wss = new WebSocketServer({ noServer: true });
 
-// ✅ Role-aware WebSocket tracking (fixed robust parsing)
+// Upgrade handler: still capture role from path/query if present (used as fallback)
+server.on("upgrade", (req, socket, head) => {
+  try {
+    const url = req.url || "";
+    let rawRole = "";
+
+    // 1) path style /ws/driver
+    const pathMatch = (url || "").match(/^\/ws\/([a-z]+)/i);
+    if (pathMatch) rawRole = pathMatch[1];
+
+    // 2) fallback query ?role=driver
+    if (!rawRole && url.includes("?")) {
+      const parsed = querystring.parse(url.split("?")[1]);
+      rawRole = parsed.role ? String(parsed.role).toLowerCase().trim() : "";
+    }
+
+    // 3) fallback header x-user-role (if any)
+    const headerRaw = req.headers["x-user-role"]
+      ? String(req.headers["x-user-role"]).toLowerCase().trim()
+      : "";
+
+    const candidate = rawRole || headerRaw || "";
+    req.roleParam = ["user", "driver"].includes(candidate) ? candidate : "user";
+  } catch (err) {
+    req.roleParam = "user";
+  }
+
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit("connection", ws, req);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// WebSocket connection handler — AUTH-FIRST approach
+// -----------------------------------------------------------------------------
 wss.on("connection", (ws, req) => {
-  let userRole = "unknown";
-  let clientIp =
+  let roleGuess = req.roleParam || "user"; // quick fallback
+  const clientIp =
     req.headers["x-forwarded-for"]?.split(",")[0] ||
     req.socket.remoteAddress ||
     "unknown";
 
-  try {
-    // ✅ Works even when behind proxies or ngrok
-    const fullUrl = req.url || "";
-    const queryPart = fullUrl.includes("?") ? fullUrl.split("?")[1] : "";
-    const queryParams = querystring.parse(queryPart);
-    const roleParam = queryParams.role ? String(queryParams.role).toLowerCase().trim() : "unknown";
+  let broadcastInterval = null;
+  let authTimer = null;
+  let authenticated = false;
 
-    if (["user", "driver", "admin"].includes(roleParam)) {
-      userRole = roleParam;
-    }
-  } catch (err) {
-    console.warn("⚠️ Failed to parse WebSocket URL:", err);
-  }
-
-  ws.userRole = userRole;
-  console.log(`📡 WebSocket connected [role=${userRole}, ip=${clientIp}]`);
-
-  // Send welcome message
-  ws.send(
-    JSON.stringify({
-      type: "welcome",
-      data: { role: ws.userRole, ip: clientIp, time: new Date().toISOString() },
-    })
-  );
-
-  // Periodic vehicle broadcast
-  const interval = setInterval(async () => {
+  // helper: start vehicle broadcast and send welcome
+  const startBroadcast = () => {
+    if (broadcastInterval) return;
+    ws.userRole = roleGuess;
+    console.log(`📡 WebSocket connected [role=${ws.userRole}, ip=${clientIp}]`);
+    // welcome
     try {
-      const snapshot = await db.collection("vehicles").get();
-      snapshot.forEach((doc) => {
-        const v = doc.data();
-        const shaped = {
-          id: doc.id,
-          vehicle_id: v.plateNo ?? doc.id,
-          route_id: v.currentRoute ?? "unknown",
-          lat: v.location?.lat ?? 0,
-          lng: v.location?.lng ?? 0,
-          occupancy: v.occupancy ?? 0,
-          capacity: v.capacity ?? 4,
-          vacant: (v.capacity ?? 4) - (v.occupancy ?? 0),
-          status: v.status ?? "inactive",
-          updated_at: v.location?.timestamp
-            ? new Date(v.location.timestamp).toISOString()
-            : new Date().toISOString(),
-        };
-
-        if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({ type: "vehicle", data: shaped }));
-        }
-      });
-    } catch (err) {
-      console.error("WebSocket broadcast error:", err);
+      ws.send(
+        JSON.stringify({
+          type: "welcome",
+          data: { role: ws.userRole, ip: clientIp, time: new Date().toISOString() },
+        })
+      );
+    } catch (e) {
+      /* ignore send errors */
     }
-  }, 5001);
+
+    // begin sending vehicles
+    broadcastInterval = setInterval(async () => {
+      try {
+        const snapshot = await db.collection("vehicles").get();
+        snapshot.forEach((doc) => {
+          const v = doc.data();
+          const shaped = {
+            id: doc.id,
+            vehicle_id: v.plateNo ?? doc.id,
+            route_id: v.currentRoute ?? "unknown",
+            lat: v.location?.lat ?? 0,
+            lng: v.location?.lng ?? 0,
+            occupancy: v.occupancy ?? 0,
+            capacity: v.capacity ?? 4,
+            vacant: (v.capacity ?? 4) - (v.occupancy ?? 0),
+            status: v.status ?? "inactive",
+            updated_at: v.location?.timestamp
+              ? new Date(v.location.timestamp).toISOString()
+              : new Date().toISOString(),
+          };
+
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: "vehicle", data: shaped }));
+          }
+        });
+      } catch (err) {
+        console.error("WebSocket broadcast error:", err);
+      }
+    }, 5001);
+  };
+
+  // auth timeout — if client doesn't authenticate within N ms, proceed with guessed role
+  authTimer = setTimeout(() => {
+    if (!authenticated) {
+      console.log(
+        `⏱️ Auth timeout — no auth message received. Proceeding with guessed role=${roleGuess} for ip=${clientIp}`
+      );
+      startBroadcast();
+    }
+  }, 4000); // 4 seconds
+
+  // process incoming messages (expecting initial auth)
+  ws.on("message", (raw) => {
+    // only accept text JSON messages
+    try {
+      const text = raw.toString();
+      const msg = JSON.parse(text);
+      if (!msg || typeof msg !== "object") return;
+
+      // AUTH message from client: { type: "auth", token: "..." }
+      if (msg.type === "auth") {
+        clearTimeout(authTimer);
+
+        const token = msg.token || msg.jwt || msg.authToken || null;
+        if (!token) {
+          console.log("⚠️ WS auth message missing token — proceeding with guess role.");
+          startBroadcast();
+          return;
+        }
+
+        try {
+          const secret = process.env.JWT_SECRET || "secret";
+          const decoded = jwt.verify(token, secret);
+
+          // deduce role from token payload
+          const tokenRole =
+            (decoded.role || decoded.userRole || decoded.type || decoded.roleName || "")
+              .toString()
+              .toLowerCase()
+              .trim();
+
+          if (["driver", "user", "admin"].includes(tokenRole)) {
+            roleGuess = tokenRole;
+          } else {
+            // keep previous guess if token doesn't include role
+          }
+
+          // attach user info to ws
+          ws.user = decoded;
+          authenticated = true;
+          ws.userRole = roleGuess;
+
+          // send ack
+          try {
+            ws.send(
+              JSON.stringify({
+                type: "auth_ack",
+                success: true,
+                role: ws.userRole,
+              })
+            );
+          } catch (err) {
+            /* ignore */
+          }
+
+          console.log(
+            `🔐 Authenticated WS [role=${ws.userRole}, ip=${clientIp}] via token`
+          );
+        } catch (err) {
+          console.warn("❌ WS token verification failed:", err.message);
+          try {
+            ws.send(
+              JSON.stringify({ type: "auth_ack", success: false, error: "invalid_token" })
+            );
+          } catch (e) {}
+        } finally {
+          startBroadcast();
+        }
+        return;
+      }
+
+      // handle keep-alive/ping messages (optionally)
+      if (msg.type === "ping") {
+        try {
+          ws.send(JSON.stringify({ type: "pong", time: Date.now() }));
+        } catch (e) {}
+        return;
+      }
+
+      // any other client messages — ignore for now or log
+    } catch (err) {
+      console.warn("⚠️ WS message parse error:", err);
+    }
+  });
 
   ws.on("close", () => {
-    clearInterval(interval);
-    console.log(`❌ WebSocket disconnected [role=${ws.userRole}, ip=${clientIp}]`);
+    if (authTimer) clearTimeout(authTimer);
+    if (broadcastInterval) clearInterval(broadcastInterval);
+    console.log(`❌ WebSocket disconnected [role=${ws.userRole || roleGuess}, ip=${clientIp}]`);
   });
 
   ws.on("error", (err) => {
-    console.warn(`⚠️ WebSocket error [role=${ws.userRole}, ip=${clientIp}]:`, err);
+    console.warn(`⚠️ WebSocket error [ip=${clientIp}]:`, err);
   });
 });
 
-// Mount alerts routes with wss context
-app.use("/alerts", alertsRoutes(db, wss));
+// -----------------------------------------------------------------------------
+// Alerts mount (unchanged)
+ // -----------------------------------------------------------------------------
+app.use("/alerts", (req, res, next) => alertsRoutes(db, wss)(req, res, next));
 console.log("🔔 Alerts route mounted.");
 
 // -----------------------------------------------------------------------------
-// Health check
-// -----------------------------------------------------------------------------
+// Health check (unchanged)
+ // -----------------------------------------------------------------------------
 app.get("/health", async (req, res) => {
   try {
     await db.collection("__healthcheck__").limit(1).get();
