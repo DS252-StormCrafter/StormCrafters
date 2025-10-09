@@ -31,7 +31,7 @@ io.on('connection', (socket) => {
 });
 
 // MongoDB connection
-mongoose.connect('mongodb://192.168.0.156:27017/chat_whatsapp', {
+mongoose.connect('mongodb://10.81.30.77:27017/chat_whatsapp', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });

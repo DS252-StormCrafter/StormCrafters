@@ -6,7 +6,7 @@ import { useAlerts } from "../hooks/useAlerts";
 
 // Fallback to explicit IP if not provided in app config
 const API =
-  Constants.expoConfig?.extra?.API_BASE_URL || "http://192.168.0.156:5001"; // 👈 replace with your machine IP
+  Constants.expoConfig?.extra?.API_BASE_URL || "https://derick-unmentionable-overdistantly.ngrok-free.dev"; // 👈 now pointing to your ngrok backend
 
 export default function ShuttleListScreen() {
   const [vehicles, setVehicles] = useState<any[]>([]);

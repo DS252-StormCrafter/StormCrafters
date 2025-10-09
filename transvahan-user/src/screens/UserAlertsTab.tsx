@@ -4,7 +4,7 @@ import { View, Text, FlatList, StyleSheet, RefreshControl, ActivityIndicator } f
 import Constants from "expo-constants";
 import axios from "axios";
 
-const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || "http://192.168.0.156:5001";
+const API_BASE_URL = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
 const WS_URL = API_BASE_URL.replace(/^http/, "ws") + "/ws";
 
 export default function UserAlertsTab() {

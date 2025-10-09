@@ -3,14 +3,14 @@
  * - Adds ?role=user|driver|admin in URL
  * - Auto-reconnects on disconnect or network change
  * - Filters malformed packets gracefully
- * - Detects role fallback automatically from global auth state
+ * - Detects role automatically from storage/global context
  * - Filters out alerts not meant for this role
  */
 
 import NetInfo from "@react-native-community/netinfo";
-import { getCurrentAuthRole } from "../utils/role"; // optional utility (see below)
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const DEFAULT_API = "http://192.168.0.156:5001"; // ✅ your backend IP
+const DEFAULT_API = "https://derick-unmentionable-overdistantly.ngrok-free.dev"; // ✅ your backend URL
 const WS_RETRY_INTERVAL = 5000;
 
 let isConnecting = false;
@@ -18,29 +18,51 @@ let reconnectTimer: NodeJS.Timeout | null = null;
 let currentWs: WebSocket | null = null;
 
 /**
+ * ✅ Detects the current role from AsyncStorage or global auth context.
+ * Falls back to "user" by default.
+ */
+async function detectRole(): Promise<"user" | "driver" | "admin"> {
+  try {
+    // 1️⃣ Try persistent storage first (works even after app reload)
+    const userJson = await AsyncStorage.getItem("auth_user");
+    if (userJson) {
+      const user = JSON.parse(userJson);
+      if (user?.role === "driver") return "driver";
+      if (user?.role === "admin") return "admin";
+      return "user";
+    }
+
+    // 2️⃣ Try global auth context fallback (during active session)
+    const ctx = (globalThis as any).__AUTH_CONTEXT__;
+    if (ctx?.isDriver || ctx?.user?.role === "driver") return "driver";
+    if (ctx?.user?.role === "admin") return "admin";
+    return "user";
+  } catch (err) {
+    console.warn("⚠️ Role detection fallback:", err);
+    return "user";
+  }
+}
+
+/**
  * Connects to WebSocket with role identification.
  * @param onMessage - callback for WS messages
- * @param role - "user" | "driver" | "admin" (optional, auto-detected if omitted)
  */
-export function wsConnect(
-  onMessage: (data: any) => void,
-  role: "user" | "driver" | "admin" = "user"
-) {
-  // Normalize role (force lowercase, singular form)
+export async function wsConnect(onMessage: (data: any) => void) {
+  const detectedRole = await detectRole();
+
   const normalizeRole = (r: string) => {
     if (!r) return "user";
     const s = r.toLowerCase().trim();
-    if (s === "users") return "user";
-    if (s === "drivers") return "driver";
-    if (s === "admins") return "admin";
-    if (!["user", "driver", "admin"].includes(s)) return "user";
-    return s;
+    if (["users", "user"].includes(s)) return "user";
+    if (["drivers", "driver"].includes(s)) return "driver";
+    if (["admins", "admin"].includes(s)) return "admin";
+    return "user";
   };
 
-  const detectedRole = normalizeRole(role || getCurrentAuthRole() || "user");
+  const role = normalizeRole(detectedRole);
   const wsUrl =
     DEFAULT_API.replace(/^http/, "ws") +
-    `/ws?role=${encodeURIComponent(detectedRole)}`;
+    `/ws?role=${encodeURIComponent(role)}`;
 
   function connect() {
     if (isConnecting) {
@@ -50,10 +72,10 @@ export function wsConnect(
 
     isConnecting = true;
     currentWs = new WebSocket(wsUrl);
-    console.log(`🌐 Connecting to WebSocket [role=${detectedRole}]:`, wsUrl);
+    console.log(`🌐 Connecting to WebSocket [role=${role}]:`, wsUrl);
 
     currentWs.onopen = () => {
-      console.log(`✅ WebSocket connected as ${detectedRole}`);
+      console.log(`✅ WebSocket connected as ${role}`);
       isConnecting = false;
     };
 
@@ -87,11 +109,12 @@ export function wsConnect(
         if (msg.type === "alert") {
           const target = (payload.target || "all").toString().toLowerCase();
           if (
-            (target === "users" && detectedRole !== "user") ||
-            (target === "drivers" && detectedRole !== "driver")
+            (target === "users" && role !== "user") ||
+            (target === "drivers" && role !== "driver") ||
+            (target === "admins" && role !== "admin")
           ) {
             console.log(
-              `🚫 Skipping alert for role mismatch: target=${target}, current=${detectedRole}`
+              `🚫 Skipping alert for role mismatch: target=${target}, current=${role}`
             );
             return;
           }
@@ -107,7 +130,7 @@ export function wsConnect(
           }
         }
 
-        // ✅ Deliver clean message to consumer callback
+        // ✅ Deliver message to consumer
         onMessage({ type: msg.type, ...payload });
       } catch (err) {
         console.warn("⚠️ WS parse error:", err);
@@ -118,7 +141,7 @@ export function wsConnect(
   // Initial connection
   connect();
 
-  // ✅ Monitor network changes (auto-reconnect when online again)
+  // ✅ Monitor network state and reconnect automatically
   const unsubscribeNetInfo = NetInfo.addEventListener((state) => {
     if (state.isConnected) {
       console.log("🌍 Network reconnected, re-establishing WebSocket...");

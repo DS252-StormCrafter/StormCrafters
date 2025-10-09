@@ -7,7 +7,7 @@ import * as Crypto from "expo-crypto";
 import { useAuth } from "../auth/authContext";
 import { setToken as setApiToken } from "../api/client";
 
-const API = Constants.expoConfig?.extra?.API_BASE_URL || "http://192.168.0.156:5001";
+const API = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
 
 export default function LoginScreen() {
   const { signIn } = useAuth();

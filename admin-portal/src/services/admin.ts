@@ -4,7 +4,7 @@ import axios from "axios";
 // ==========================================================
 // 🌐 BASE API CONFIG
 // ==========================================================
-const API = import.meta.env.VITE_API_BASE || "http://192.168.0.156:5001";
+const API = import.meta.env.VITE_API_BASE || "http://10.81.30.77:5001";
 
 const api = axios.create({
   baseURL: API,

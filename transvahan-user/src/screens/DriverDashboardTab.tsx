@@ -14,7 +14,7 @@ import * as Location from "expo-location";
 import axios from "axios";
 import { useAuth } from "../auth/authContext";
 
-const API_BASE_URL = "http://192.168.0.156:5001";
+const API_BASE_URL = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
 const ASPECT_RATIO = Dimensions.get("window").width / Dimensions.get("window").height;
 
 export default function DriverDashboardTab() {
@@ -37,7 +37,10 @@ export default function DriverDashboardTab() {
         setOccupancy(data.occupancy ?? 0);
         setCapacity(data.capacity ?? 4);
       } catch (err) {
-        console.warn("⚠️ Could not load vehicle:", err?.message);
+        console.warn(
+          "⚠️ Could not load vehicle:",
+          (err && typeof err === "object" && "message" in err) ? (err as any).message : err
+        );
       }
     };
     fetchVehicle();
@@ -81,7 +84,10 @@ export default function DriverDashboardTab() {
               );
               console.log("✅ Telemetry sent", pos.coords);
             } catch (err) {
-              console.warn("❌ Telemetry failed:", err?.message);
+              console.warn(
+                "❌ Telemetry failed:",
+                err && typeof err === "object" && "message" in err ? (err as any).message : err
+              );
             }
           }
         }

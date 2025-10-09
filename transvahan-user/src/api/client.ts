@@ -4,14 +4,43 @@ import Constants from "expo-constants";
 import { endpoints } from "./endpoints";
 import { API, LoginRequest, LoginResponse } from "./types";
 import { Route, Vehicle, NextArrival } from "../types";
-import { wsConnect } from "./ws";
 
-const API_BASE_URL = Constants?.expoConfig?.extra?.API_BASE_URL || "http://192.168.0.156:5001";
-const WS_URL = API_BASE_URL.replace(/^http/, "ws") + "/ws";
+// =============================================
+// 💫 NGROK / BACKEND CONFIGURATION
+// =============================================
 
-const http = axios.create({ baseURL: API_BASE_URL, timeout: 10000 });
+// ⚙️ Backend ngrok URL (currently pointing to your Express backend)
+// 👉 Replace this with your cloud URL once deployed (e.g. https://your-backend.com)
+const NGROK_BACKEND = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
+
+// Fallback to local backend (for laptop testing only)
+const LOCAL_API_URL = "http://10.81.30.77:5001";
+
+// ✅ Prefer ngrok backend when available
+const API_BASE_URL =
+  NGROK_BACKEND && NGROK_BACKEND.trim() !== ""
+    ? NGROK_BACKEND
+    : Constants?.expoConfig?.extra?.API_BASE_URL || LOCAL_API_URL;
+
+// ✅ Auto-generate WebSocket URL (handles http→ws and https→wss)
+const WS_URL =
+  API_BASE_URL.replace(/^https?:/, API_BASE_URL.startsWith("https") ? "wss:" : "ws:") + "/ws";
+
+
+// =============================================
+// ⚡ AXIOS INSTANCE + AUTH TOKEN HANDLING
+// =============================================
+
+const http = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 10000,
+});
+
 let token: string | null = null;
-export const setToken = (t: string | null) => (token = t);
+
+export const setToken = (t: string | null) => {
+  token = t;
+};
 
 http.interceptors.request.use((config) => {
   if (token) {
@@ -21,6 +50,10 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
+// =============================================
+// 🚀 API CLIENT IMPLEMENTATION
+// =============================================
+
 export const apiClient: API & {
   loginDriver?: (body: { email: string; password: string }) => Promise<LoginResponse>;
   sendTelemetry?: (body: any) => Promise<any>;
@@ -29,31 +62,37 @@ export const apiClient: API & {
   getAlerts?: () => Promise<any[]>;
   subscribeAlerts?: (cb: (alert: any) => void) => void;
 } = {
+  // USER LOGIN
   async login(body: LoginRequest) {
     const { data } = await http.post<LoginResponse>(endpoints.login, body);
     return data;
   },
 
+  // DRIVER LOGIN
   async loginDriver(body) {
     const { data } = await http.post<LoginResponse>("/auth/driver/login", body);
     return data;
   },
 
+  // ROUTES
   async getRoutes() {
     const { data } = await http.get<Route[]>(endpoints.routes);
     return data;
   },
 
+  // VEHICLES
   async getVehicles() {
     const { data } = await http.get<Vehicle[]>(endpoints.vehicles);
     return data;
   },
 
+  // NEXT ARRIVALS
   async getNextArrivals() {
     const { data } = await http.get<NextArrival[]>(endpoints.nextArrivals);
     return data;
   },
 
+  // VEHICLE WEBSOCKET SUBSCRIPTION
   subscribeVehicles(cb) {
     const socket = new WebSocket(WS_URL);
     socket.onmessage = (event) => {
@@ -63,16 +102,19 @@ export const apiClient: API & {
     return () => socket.close();
   },
 
+  // DRIVER TELEMETRY
   async sendTelemetry(body) {
     const { data } = await http.post("/driver/telemetry", body);
     return data;
   },
 
+  // DRIVER OCCUPANCY
   async updateOccupancy(body) {
     const { data } = await http.post("/driver/occupancy", body);
     return data;
   },
 
+  // DRIVER TRIP CONTROL
   async controlTrip(body) {
     const { data } = await http.post("/driver/trip", body);
     return data;
@@ -93,3 +135,9 @@ export const apiClient: API & {
     return () => socket.close();
   },
 };
+
+// =============================================
+// 🧠 Debug Log (for verification)
+// =============================================
+console.log("[API] Using base URL:", API_BASE_URL);
+console.log("[WS] Using WebSocket URL:", WS_URL);

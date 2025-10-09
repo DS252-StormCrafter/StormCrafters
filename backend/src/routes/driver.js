@@ -23,14 +23,17 @@ export default function driverRoutes(db) {
       const match = await bcrypt.compare(password, driver.password);
       if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
+      // ✅ FIX: Assign proper driver role in JWT
       const token = jwt.sign(
         { id: d.id, email: driver.email, role: "driver" },
         process.env.JWT_SECRET || "secret",
         { expiresIn: "7d" }
       );
 
+      // ✅ Update last login
       await d.ref.update({ lastLoginAt: new Date().toISOString() });
 
+      // ✅ Fetch assigned vehicles
       const vehicleSnap = await db.collection("vehicles").where("assignedTo", "==", driver.email).get();
       const assignedVehicles = vehicleSnap.docs.map((doc) => ({
         id: doc.id,
@@ -43,7 +46,7 @@ export default function driverRoutes(db) {
           id: d.id,
           name: driver.name,
           email: driver.email,
-          role: "driver",
+          role: "driver", // ✅ ensure returned role matches JWT
         },
         assignedVehicles,
       });
@@ -59,7 +62,7 @@ export default function driverRoutes(db) {
   router.post("/telemetry", authenticate, async (req, res) => {
     try {
       const { vehicleId, lat, lng, occupancy, status, route_id } = req.body;
-      const driverEmail = req.user?.email; // ✅ FIXED
+      const driverEmail = req.user?.email;
 
       if (!driverEmail) return res.status(401).json({ error: "Invalid driver token" });
       if (!vehicleId || !lat || !lng)
@@ -103,7 +106,7 @@ export default function driverRoutes(db) {
   router.post("/occupancy", authenticate, async (req, res) => {
     try {
       const { vehicleId, delta } = req.body;
-      const driverEmail = req.user?.email; // ✅ FIXED
+      const driverEmail = req.user?.email;
 
       if (!driverEmail) return res.status(401).json({ error: "Invalid driver token" });
       if (!vehicleId || typeof delta !== "number")
@@ -139,7 +142,7 @@ export default function driverRoutes(db) {
   router.post("/trip", authenticate, async (req, res) => {
     try {
       const { vehicleId, action, route_id } = req.body;
-      const driverEmail = req.user?.email; // ✅ FIXED
+      const driverEmail = req.user?.email;
 
       if (!driverEmail) return res.status(401).json({ error: "Invalid driver token" });
       if (!vehicleId || !action)

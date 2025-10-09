@@ -78,10 +78,10 @@ jobs:
       - name: Seed Firestore (staging only)
         run: node db/scripts/seed_firestore.js
         env:
-          FIREBASE_AUTH_EMULATOR_HOST: 192.168.0.156:9099
-          FIRESTORE_EMULATOR_HOST: 192.168.0.156:8080
+          FIREBASE_AUTH_EMULATOR_HOST: 10.81.30.77:9099
+          FIRESTORE_EMULATOR_HOST: 10.81.30.77:8080
 
       - name: Seed RTDB (staging only)
         run: node db/scripts/seed_rtdb.js
         env:
-          FIREBASE_DATABASE_EMULATOR_HOST: 192.168.0.156:9000
+          FIREBASE_DATABASE_EMULATOR_HOST: 10.81.30.77:9000

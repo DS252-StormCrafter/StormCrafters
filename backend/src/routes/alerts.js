@@ -3,43 +3,50 @@ import { Router } from "express";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 
 /**
- * Alerts routes factory
- * - GET /        -> public (no auth required)
- * - POST /       -> protected (authenticate)
- * - DELETE /:id  -> protected (requireAdmin)
- * - PATCH /:id/resolve -> protected (authenticate)
- *
- * Accepts db and wss for broadcast.
+ * Alerts Routes (Final Role-Safe Version)
+ * - GET /alerts          → Public (fetch all alerts)
+ * - POST /alerts         → Authenticated (Admin or Driver)
+ * - PATCH /alerts/:id    → Authenticated (Resolve alert)
+ * - DELETE /alerts/:id   → Admin only
+ * 
+ * Features:
+ * ✅ Role-based WebSocket broadcast (user / driver / admin / all)
+ * ✅ Skips "unknown" WebSocket clients
+ * ✅ Logs broadcast stats for verification
  */
 export default function alertsRoutes(db, wss) {
   const router = Router();
 
-  // ----------------------------------------------------
-  // Utility helpers
-  // ----------------------------------------------------
-  function normalizeTarget(t) {
+  // ------------------------------------------------------------
+  // Helper: Normalize target and roles
+  // ------------------------------------------------------------
+  const normalizeTarget = (t) => {
     if (!t) return "all";
     const s = String(t).toLowerCase().trim();
     if (["user", "users"].includes(s)) return "users";
     if (["driver", "drivers"].includes(s)) return "drivers";
+    if (["admin", "admins"].includes(s)) return "admins";
     return "all";
-  }
+  };
 
-  function normalizeRole(r) {
+  const normalizeRole = (r) => {
     if (!r) return "unknown";
     const s = String(r).toLowerCase().trim();
-    if (s === "user") return "user";
-    if (s === "driver") return "driver";
+    if (["user", "users"].includes(s)) return "user";
+    if (["driver", "drivers"].includes(s)) return "driver";
+    if (["admin", "admins"].includes(s)) return "admin";
     return "unknown";
-  }
+  };
 
-  // ----------------------------------------------------
-  // Create Alert (protected) — any authenticated actor can post (admins/drivers)
-  // ----------------------------------------------------
+  // ------------------------------------------------------------
+  // 📨 Create Alert (Authenticated: Admin or Driver)
+  // ------------------------------------------------------------
   router.post("/", authenticate, async (req, res) => {
     try {
       const { message, route_id, vehicle_id, type, target } = req.body;
-      if (!message) return res.status(400).json({ error: "Message is required" });
+
+      if (!message)
+        return res.status(400).json({ error: "Message is required" });
 
       const normalizedTarget = normalizeTarget(target);
 
@@ -48,7 +55,7 @@ export default function alertsRoutes(db, wss) {
         route_id: route_id || null,
         vehicle_id: vehicle_id || null,
         type: type || "general",
-        target: normalizedTarget, // "users" | "drivers" | "all"
+        target: normalizedTarget, // "users" | "drivers" | "admins" | "all"
         createdAt: new Date().toISOString(),
         resolved: false,
         createdBy: req.user
@@ -59,58 +66,64 @@ export default function alertsRoutes(db, wss) {
       const docRef = db.collection("alerts").doc();
       await docRef.set(alert);
 
-      // ----------------------------------------------------
-      // Broadcast alert (role-based filtering)
-      // ----------------------------------------------------
+      // ------------------------------------------------------------
+      // WebSocket Broadcast (role-filtered)
+      // ------------------------------------------------------------
       if (wss) {
         const payload = JSON.stringify({
           type: "alert",
           data: { id: docRef.id, ...alert },
         });
 
-        let counts = { users: 0, drivers: 0, unknown: 0 };
+        let counts = { users: 0, drivers: 0, admins: 0, unknown: 0 };
 
         wss.clients.forEach((client) => {
           if (client.readyState !== 1) return;
 
           const role = normalizeRole(client.userRole);
 
-          // Completely skip unknown sockets
-          if (role === "unknown") return;
+          if (role === "unknown") {
+            counts.unknown++;
+            return;
+          }
 
-          // Strict broadcast filtering (no unknown leaks)
           const shouldSend =
             alert.target === "all" ||
             (alert.target === "users" && role === "user") ||
-            (alert.target === "drivers" && role === "driver");
+            (alert.target === "drivers" && role === "driver") ||
+            (alert.target === "admins" && role === "admin");
 
           if (shouldSend) {
             try {
               client.send(payload);
               if (role === "user") counts.users++;
               else if (role === "driver") counts.drivers++;
-            } catch (e) {
-              console.warn(`⚠️ WS send failed for ${role}:`, e);
+              else if (role === "admin") counts.admins++;
+            } catch (err) {
+              console.warn(`⚠️ WS send failed for ${role}:`, err);
             }
           }
-
         });
 
         console.log(
-          `📢 Alert broadcasted [target=${alert.target}] → users=${counts.users}, drivers=${counts.drivers}, unknown=${counts.unknown}`
+          `📢 Alert broadcasted [target=${alert.target}] → users=${counts.users}, drivers=${counts.drivers}, admins=${counts.admins}, unknown=${counts.unknown}`
         );
       }
 
-      res.json({ ok: true, message: "Alert created successfully", id: docRef.id });
+      res.json({
+        ok: true,
+        message: "Alert created successfully",
+        id: docRef.id,
+      });
     } catch (err) {
       console.error("❌ Alert creation error:", err);
       res.status(500).json({ error: "Failed to create alert" });
     }
   });
 
-  // ----------------------------------------------------
-  // Get Alerts (public)
-  // ----------------------------------------------------
+  // ------------------------------------------------------------
+  // 📋 Get Alerts (Public)
+  // ------------------------------------------------------------
   router.get("/", async (req, res) => {
     try {
       const snap = await db
@@ -127,9 +140,9 @@ export default function alertsRoutes(db, wss) {
     }
   });
 
-  // ----------------------------------------------------
-  // Delete Alert (admin only)
-  // ----------------------------------------------------
+  // ------------------------------------------------------------
+  // 🗑️ Delete Alert (Admin only)
+  // ------------------------------------------------------------
   router.delete("/:id", authenticate, requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
@@ -149,13 +162,16 @@ export default function alertsRoutes(db, wss) {
     }
   });
 
-  // ----------------------------------------------------
-  // Mark as Resolved (authenticated)
-  // ----------------------------------------------------
+  // ------------------------------------------------------------
+  // ✅ Mark Alert as Resolved
+  // ------------------------------------------------------------
   router.patch("/:id/resolve", authenticate, async (req, res) => {
     try {
       const { id } = req.params;
-      await db.collection("alerts").doc(id).set({ resolved: true }, { merge: true });
+      await db
+        .collection("alerts")
+        .doc(id)
+        .set({ resolved: true }, { merge: true });
 
       if (wss) {
         const payload = JSON.stringify({ type: "alert_resolved", data: { id } });
