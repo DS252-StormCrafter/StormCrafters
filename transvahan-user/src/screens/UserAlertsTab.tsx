@@ -1,7 +1,13 @@
 // src/screens/UserAlertsTab.tsx
 import React, { useEffect, useState, useCallback } from "react";
-import { View, Text, FlatList, StyleSheet, RefreshControl, ActivityIndicator } from "react-native";
-import Constants from "expo-constants";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  RefreshControl,
+  ActivityIndicator,
+} from "react-native";
 import axios from "axios";
 
 const API_BASE_URL = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
@@ -17,7 +23,15 @@ export default function UserAlertsTab() {
     try {
       setRefreshing(true);
       const { data } = await axios.get(`${API_BASE_URL}/alerts`);
-      setAlerts(Array.isArray(data) ? data.filter((a) => a.target !== "drivers") : []);
+      const filtered = Array.isArray(data)
+        ? data.filter(
+            (a) =>
+              !["drivers", "driver", "admins", "admin"].includes(
+                String(a.target).toLowerCase()
+              )
+          )
+        : [];
+      setAlerts(filtered);
     } catch (err) {
       console.warn("⚠️ Alerts fetch error:", err);
     } finally {
@@ -30,19 +44,34 @@ export default function UserAlertsTab() {
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
     ws.onopen = () => console.log("🔔 WebSocket connected for user alerts");
+
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === "alert") {
-          if (msg.data.target === "drivers") return; // skip driver-only alerts
-          setAlerts((prev) => [msg.data, ...prev]);
-        } else if (msg.type === "alert_deleted") {
+        const type = msg.type?.toLowerCase();
+        const target = String(msg.audience || msg.data?.target || "").toLowerCase();
+
+        if (type === "alert" || type === "alert_created") {
+          if (["drivers", "driver", "admins", "admin"].includes(target)) return;
+          console.log("🚨 New alert received:", msg.data);
+          setAlerts((prev) => [
+            { ...msg.data, id: msg.data?.id || Date.now().toString() },
+            ...prev,
+          ]);
+        } else if (type === "alert_resolved") {
+          setAlerts((prev) =>
+            prev.map((a) =>
+              a.id === msg.data.id ? { ...a, resolved: true } : a
+            )
+          );
+        } else if (type === "alert_deleted") {
           setAlerts((prev) => prev.filter((a) => a.id !== msg.data.id));
         }
       } catch (err) {
         console.warn("⚠️ WebSocket parse error:", err);
       }
     };
+
     ws.onerror = (err) => console.warn("❌ WS error:", err);
     ws.onclose = () => console.log("🔕 WebSocket disconnected (user alerts)");
 
@@ -65,13 +94,15 @@ export default function UserAlertsTab() {
       <FlatList
         data={alerts}
         keyExtractor={(item, index) => item.id || index.toString()}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchAlerts} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={fetchAlerts} />
+        }
         renderItem={({ item }) => (
           <View style={[styles.card, item.resolved && styles.resolvedCard]}>
             <Text style={styles.title}>{item.title || "Alert"}</Text>
             <Text style={styles.body}>{item.message}</Text>
             <Text style={styles.time}>
-              {new Date(item.createdAt).toLocaleString()}
+              {new Date(item.createdAt || Date.now()).toLocaleString()}
               {item.resolved ? " ✅ Resolved" : ""}
             </Text>
           </View>

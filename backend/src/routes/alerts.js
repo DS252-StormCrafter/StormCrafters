@@ -1,12 +1,11 @@
-// backend/src/routes/alerts.js
 import { Router } from "express";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 
 /**
  * FINAL FIXED VERSION ✅
- * - Role-filtered GET /alerts based on JWT
- * - WebSocket broadcasting still role-safe
- * - Adds /alerts/_test helper for easy role testing
+ * - Ensures every alert has id, target, and createdAt before saving
+ * - Guarantees driver-only alerts visible to drivers
+ * - Broadcast remains role-safe (no extra duplicates)
  */
 
 export default function alertsRoutes(db, wss) {
@@ -98,23 +97,26 @@ export default function alertsRoutes(db, wss) {
 
       const normalizedTarget = normalizeTarget(target);
 
+      const docRef = db.collection("alerts").doc(); // create first, get id early ✅
+
       const alert = {
+        id: docRef.id, // ✅ ensure Firestore doc always includes ID field
         message,
         route_id: route_id || null,
         vehicle_id: vehicle_id || null,
         type: type || "general",
-        target: normalizedTarget,
-        createdAt: new Date().toISOString(),
+        target: normalizedTarget || "all", // ✅ ensure target always normalized
+        createdAt: new Date().toISOString(), // ✅ consistent ISO time
         resolved: false,
         createdBy: req.user
           ? { email: req.user.email, id: req.user.id, role: req.user.role }
           : null,
       };
 
-      const docRef = db.collection("alerts").doc();
-      await docRef.set(alert);
+      await docRef.set(alert); // save alert with full info
 
-      broadcastToRole({ type: "alert_created", data: { id: docRef.id, ...alert } }, alert.target);
+      // Broadcast to correct target audience
+      broadcastToRole({ type: "alert_created", data: alert }, alert.target);
 
       res.json({ ok: true, message: "Alert created successfully", id: docRef.id });
     } catch (err) {
@@ -183,16 +185,17 @@ export default function alertsRoutes(db, wss) {
   router.post("/_test", async (req, res) => {
     const { target = "users", message = "Test alert" } = req.body || {};
     const normalizedTarget = normalizeTarget(target);
+    const docRef = db.collection("alerts").doc();
     const alert = {
+      id: docRef.id,
       message,
       target: normalizedTarget,
       createdAt: new Date().toISOString(),
       resolved: false,
       createdBy: { email: "dev@local", id: "dev" },
     };
-    const docRef = db.collection("alerts").doc();
     await docRef.set(alert);
-    broadcastToRole({ type: "alert_created", data: { id: docRef.id, ...alert } }, normalizedTarget);
+    broadcastToRole({ type: "alert_created", data: alert }, normalizedTarget);
     res.json({ ok: true });
   });
 

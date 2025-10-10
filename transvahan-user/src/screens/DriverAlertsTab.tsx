@@ -1,5 +1,5 @@
 // src/screens/DriverAlertsTab.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -9,35 +9,142 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { apiClient } from "../api/client";
+import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const API_BASE_URL = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
+// ✅ Add role hint to WebSocket URL
+const WS_URL = API_BASE_URL.replace(/^http/, "ws") + "/ws?role=driver";
 
 export default function DriverAlertsTab() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
-  const fetchAlerts = async () => {
+  // 🔐 Retrieve saved JWT token
+  const getToken = async () => {
+    const keys = ["auth_token", "token", "jwt", "accessToken"];
+    for (const k of keys) {
+      const v = await AsyncStorage.getItem(k);
+      if (v) return v;
+    }
+    const userJson = await AsyncStorage.getItem("auth_user");
+    if (userJson) {
+      const user = JSON.parse(userJson);
+      return (
+        user?.token ||
+        user?.authToken ||
+        user?.accessToken ||
+        user?.jwt ||
+        user?.idToken ||
+        null
+      );
+    }
+    return null;
+  };
+
+  // 🧭 Fetch latest driver alerts (REST fallback)
+  const fetchAlerts = useCallback(async () => {
     try {
       setRefreshing(true);
-      const data = await apiClient.getAlerts?.();
-      setAlerts(data || []);
+      const token = await getToken();
+      const { data } = await axios.get(`${API_BASE_URL}/alerts`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      const filtered = Array.isArray(data)
+        ? data.filter((a) =>
+            ["drivers", "driver", "all"].includes(
+              String(a.target).toLowerCase()
+            )
+          )
+        : [];
+      setAlerts(filtered);
     } catch (err) {
-      console.warn("Error fetching alerts:", err);
+      console.warn("⚠️ Driver Alerts fetch error:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    fetchAlerts();
-    // ✅ subscribe to live alerts
-    const unsubscribe = apiClient.subscribeAlerts?.((alert) => {
-      setAlerts((prev) => [alert, ...prev]);
-      Alert.alert("🔔 New Alert", alert.message || "Admin sent a notification");
-    });
-    return () => unsubscribe && unsubscribe();
   }, []);
+
+  // 🔔 Real-time alerts via WebSocket
+  useEffect(() => {
+    let ws: WebSocket;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+
+    const connectWebSocket = async () => {
+      const token = await getToken();
+      ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("🚚 [Driver WS] Connected:", WS_URL);
+        if (token) {
+          ws.send(JSON.stringify({ type: "auth", token }));
+          console.log("📨 [Driver WS] Sent auth token");
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          const type = msg.type?.toLowerCase();
+          const data = msg.data || {};
+          const target = String(msg.audience || data.target || "").toLowerCase();
+
+          // Debug logging
+          console.log("📩 [Driver WS] Received:", type, target, data);
+
+          if (type === "alert" || type === "alert_created") {
+            // Show only driver or all alerts
+            if (!["drivers", "driver", "all"].includes(target)) {
+              console.log("⏭️ Skipping alert not for driver:", target);
+              return;
+            }
+
+            setAlerts((prev) => {
+              if (prev.some((a) => a.id === data.id)) return prev; // avoid duplicates
+              return [{ ...data, id: data.id || Date.now().toString() }, ...prev];
+            });
+
+            Alert.alert("🔔 New Alert", data.message || "New alert received");
+          } else if (type === "alert_resolved") {
+            setAlerts((prev) =>
+              prev.map((a) =>
+                a.id === data.id ? { ...a, resolved: true } : a
+              )
+            );
+          } else if (type === "alert_deleted") {
+            setAlerts((prev) => prev.filter((a) => a.id !== data.id));
+          }
+        } catch (err) {
+          console.warn("⚠️ WS parse error:", err);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.warn("❌ [Driver WS] Error:", err);
+      };
+
+      ws.onclose = (e) => {
+        console.log("🔕 [Driver WS] Disconnected:", e.reason);
+        // Auto-reconnect after 5s (optional)
+        if (!reconnectTimeout) {
+          reconnectTimeout = setTimeout(connectWebSocket, 5000);
+        }
+      };
+    };
+
+    connectWebSocket();
+    fetchAlerts(); // initial load
+
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, [fetchAlerts]);
 
   if (loading) {
     return (
@@ -50,21 +157,24 @@ export default function DriverAlertsTab() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Admin Alerts</Text>
+      <Text style={styles.header}>Driver Alerts</Text>
       <FlatList
         data={alerts}
-        keyExtractor={(item) => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchAlerts} />}
+        keyExtractor={(item, index) => item.id || index.toString()}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={fetchAlerts} />
+        }
         renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.title}>{item.title || "Alert"}</Text>
+          <View style={[styles.card, item.resolved && styles.resolvedCard]}>
+            <Text style={styles.title}>Alert</Text>
             <Text style={styles.body}>{item.message}</Text>
             <Text style={styles.time}>
-              {item.timestamp ? new Date(item.timestamp).toLocaleString() : "No timestamp"}
+              {new Date(item.createdAt || Date.now()).toLocaleString()}
+              {item.resolved ? " ✅ Resolved" : ""}
             </Text>
           </View>
         )}
-        ListEmptyComponent={<Text style={{ textAlign: "center", marginTop: 20 }}>No alerts yet</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>No alerts yet</Text>}
       />
     </View>
   );
@@ -82,9 +192,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
+    borderLeftWidth: 4,
+    borderLeftColor: "#2563eb",
   },
+  resolvedCard: { opacity: 0.6, borderLeftColor: "#22c55e" },
   title: { fontWeight: "700", fontSize: 16, marginBottom: 4 },
   body: { color: "#333", marginBottom: 6 },
   time: { fontSize: 12, color: "#666" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  empty: { textAlign: "center", marginTop: 20 },
 });

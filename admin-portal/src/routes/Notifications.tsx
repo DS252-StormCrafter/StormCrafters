@@ -1,5 +1,5 @@
 // admin-portal/src/routes/Notifications.tsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   fetchNotifications,
   createAlert,
@@ -17,58 +17,53 @@ export default function Notifications() {
   const [target, setTarget] = useState<"users" | "drivers" | "all">("all");
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
-
   const [filterTarget, setFilterTarget] = useState<"all" | "users" | "drivers">("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "resolved">("all");
   const [searchText, setSearchText] = useState("");
+  const wsRef = useRef<WebSocket | null>(null);
 
   const loadAlerts = async () => {
     try {
       const res = await fetchNotifications();
-      setAlerts(Array.isArray(res.data) ? res.data : []);
+      const arr = Array.isArray(res.data) ? res.data : [];
+      setAlerts(arr);
     } catch (err) {
       console.error("❌ Failed to fetch alerts:", err);
     }
   };
 
   useEffect(() => {
-    loadAlerts();
-
+    if (wsRef.current) wsRef.current.close();
     const token = localStorage.getItem("token");
     const ws = new WebSocket(WS_URL);
+    wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log("🔔 WebSocket connected");
+      console.log("🔔 WS connected (admin)");
       setConnected(true);
-
-      if (token) {
-        ws.send(JSON.stringify({ type: "auth", token }));
-        console.log("📨 Sent auth for admin");
-      }
+      if (token) ws.send(JSON.stringify({ type: "auth", token }));
     };
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-
-        const type = msg.type;
-        const data = msg.data ?? {};
+        const type = msg.type?.toLowerCase();
+        const data = msg.data || {};
 
         if (type === "alert_created" || type === "alert") {
-          console.log("📥 New alert from WS:", data);
+          console.log("📥 New alert via WS:", data);
           setAlerts((prev) => {
-            // avoid duplicates
-            if (prev.find((a) => a.id === data.id)) return prev;
-            return [data, ...prev];
+            if (prev.some((a) => a.id === data.id)) return prev; // avoid duplicates
+            return [{ ...data, id: data.id || Date.now().toString() }, ...prev];
           });
-        } else if (type === "alert_deleted") {
-          setAlerts((prev) => prev.filter((a) => a.id !== data.id));
         } else if (type === "alert_resolved") {
           setAlerts((prev) =>
             prev.map((a) =>
               a.id === data.id ? { ...a, resolved: true } : a
             )
           );
+        } else if (type === "alert_deleted") {
+          setAlerts((prev) => prev.filter((a) => a.id !== data.id));
         }
       } catch (err) {
         console.warn("⚠️ WS parse error:", err);
@@ -76,11 +71,12 @@ export default function Notifications() {
     };
 
     ws.onclose = () => {
-      console.warn("🔕 WebSocket disconnected");
+      console.warn("🔕 WS disconnected");
       setConnected(false);
     };
     ws.onerror = (err) => console.warn("⚠️ WS error:", err);
 
+    loadAlerts();
     return () => ws.close();
   }, []);
 
@@ -88,9 +84,22 @@ export default function Notifications() {
     if (!message.trim()) return alert("⚠️ Message is required");
     setLoading(true);
     try {
-      await createAlert({ message, target });
+      const res = await createAlert({ message, target });
+      const id = res?.data?.id;
+      const newAlert = {
+        id: id || Date.now().toString(),
+        message,
+        target,
+        resolved: false,
+        createdAt: new Date().toISOString(),
+      };
+
+      setAlerts((prev) => {
+        if (prev.some((a) => a.id === newAlert.id)) return prev;
+        return [newAlert, ...prev];
+      });
+
       setMessage("");
-      await loadAlerts();
       alert("✅ Alert sent successfully");
     } catch (err) {
       console.error("❌ Failed to send alert:", err);
@@ -148,7 +157,6 @@ export default function Notifications() {
     <div style={{ padding: 20 }}>
       <h2>🔔 System Alerts</h2>
 
-      {/* CREATE */}
       <div className="card form-row" style={{ marginBottom: 12 }}>
         <input
           placeholder="Alert message..."
@@ -165,7 +173,6 @@ export default function Notifications() {
         </button>
       </div>
 
-      {/* FILTERS */}
       <div className="card form-row" style={{ marginBottom: 12 }}>
         <select
           value={filterTarget}
@@ -193,7 +200,6 @@ export default function Notifications() {
         <span>{connected ? "🟢 Live" : "🔴 Offline"}</span>
       </div>
 
-      {/* TABLE */}
       <div className="card">
         <h3>Alerts ({filteredAlerts.length})</h3>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
