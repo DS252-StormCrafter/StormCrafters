@@ -12,7 +12,7 @@ function Login({ onLogin }) {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('http://10.81.30.75:5001/api/login', {
+      const res = await fetch('http://192.168.0.156:5001/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),

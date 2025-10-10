@@ -4,8 +4,26 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import { authenticate } from "../middleware/auth.js";
 
-export default function driverRoutes(db) {
+export default function driverRoutes(db, wss) {
   const router = Router();
+
+  // ---------- Helper for safe WS broadcast ----------
+  const broadcastToAll = (payloadObj) => {
+    if (!wss) return;
+    const payload = JSON.stringify(payloadObj);
+    let count = 0;
+    wss.clients.forEach((client) => {
+      try {
+        if (client.readyState === 1) {
+          client.send(payload);
+          count++;
+        }
+      } catch (err) {
+        console.warn("⚠️ WS send error (occupancy):", err);
+      }
+    });
+    console.log(`📡 Broadcasted to ${count} clients →`, payloadObj.type);
+  };
 
   // ============================================================
   // ✅ DRIVER LOGIN (Public)
@@ -23,17 +41,14 @@ export default function driverRoutes(db) {
       const match = await bcrypt.compare(password, driver.password);
       if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
-      // ✅ FIX: Assign proper driver role in JWT
       const token = jwt.sign(
         { id: d.id, email: driver.email, role: "driver" },
         process.env.JWT_SECRET || "secret",
         { expiresIn: "7d" }
       );
 
-      // ✅ Update last login
       await d.ref.update({ lastLoginAt: new Date().toISOString() });
 
-      // ✅ Fetch assigned vehicles
       const vehicleSnap = await db.collection("vehicles").where("assignedTo", "==", driver.email).get();
       const assignedVehicles = vehicleSnap.docs.map((doc) => ({
         id: doc.id,
@@ -46,7 +61,7 @@ export default function driverRoutes(db) {
           id: d.id,
           name: driver.name,
           email: driver.email,
-          role: "driver", // ✅ ensure returned role matches JWT
+          role: "driver",
         },
         assignedVehicles,
       });
@@ -69,18 +84,16 @@ export default function driverRoutes(db) {
         return res.status(400).json({ error: "vehicleId, lat, lng required" });
 
       const vRef = db.collection("vehicles").doc(vehicleId);
-      await vRef.set(
-        {
-          driverEmail,
-          location: { lat, lng, timestamp: Date.now() },
-          occupancy: typeof occupancy === "number" ? occupancy : undefined,
-          status: status || "active",
-          currentRoute: route_id || null,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      const update = {
+        driverEmail,
+        location: { lat, lng, timestamp: Date.now() },
+        occupancy: typeof occupancy === "number" ? occupancy : undefined,
+        status: status || "active",
+        currentRoute: route_id || null,
+        updatedAt: new Date().toISOString(),
+      };
 
+      await vRef.set(update, { merge: true });
       await db.collection("driver_activity").add({
         driverEmail,
         vehicleId,
@@ -92,6 +105,9 @@ export default function driverRoutes(db) {
         type: "telemetry",
         createdAt: new Date().toISOString(),
       });
+
+      // 🛰️ Broadcast telemetry update to users
+      broadcastToAll({ type: "vehicle_update", data: { id: vehicleId, ...update } });
 
       res.json({ ok: true });
     } catch (err) {
@@ -113,11 +129,14 @@ export default function driverRoutes(db) {
         return res.status(400).json({ error: "vehicleId & delta required" });
 
       const vRef = db.collection("vehicles").doc(vehicleId);
+      let next = 0;
+      let capacity = 4;
+
       await db.runTransaction(async (tx) => {
         const doc = await tx.get(vRef);
         const current = doc.exists ? doc.data().occupancy || 0 : 0;
-        const cap = doc.exists ? doc.data().capacity || 4 : 4;
-        const next = Math.min(Math.max(current + delta, 0), cap);
+        capacity = doc.exists ? doc.data().capacity || 4 : 4;
+        next = Math.min(Math.max(current + delta, 0), capacity);
         tx.set(vRef, { occupancy: next, updatedAt: new Date().toISOString() }, { merge: true });
       });
 
@@ -129,7 +148,18 @@ export default function driverRoutes(db) {
         createdAt: new Date().toISOString(),
       });
 
-      res.json({ ok: true });
+      // 🛰️ Broadcast occupancy change to all connected clients
+      broadcastToAll({
+        type: "vehicle_update",
+        data: {
+          id: vehicleId,
+          occupancy: next,
+          capacity,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+
+      res.json({ ok: true, occupancy: next, capacity });
     } catch (err) {
       console.error("Occupancy error:", err);
       res.status(500).json({ error: "Internal server error" });
@@ -148,27 +178,19 @@ export default function driverRoutes(db) {
       if (!vehicleId || !action)
         return res.status(400).json({ error: "vehicleId & action required" });
 
-      if (action === "start") {
-        await db.collection("vehicles").doc(vehicleId).set(
-          {
-            driverEmail,
-            currentRoute: route_id || null,
-            status: "running",
-            tripStartedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-      } else {
-        await db.collection("vehicles").doc(vehicleId).set(
-          {
-            driverEmail,
-            status: "idle",
-            currentRoute: null,
-            tripEndedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-      }
+      let status = "idle";
+      if (action === "start") status = "running";
+
+      await db.collection("vehicles").doc(vehicleId).set(
+        {
+          driverEmail,
+          currentRoute: route_id || null,
+          status,
+          [`trip${action === "start" ? "StartedAt" : "EndedAt"}`]:
+            new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
       await db.collection("driver_activity").add({
         driverEmail,
@@ -177,6 +199,12 @@ export default function driverRoutes(db) {
         route_id,
         createdAt: new Date().toISOString(),
         type: "trip_control",
+      });
+
+      // 🛰️ Broadcast trip status update
+      broadcastToAll({
+        type: "vehicle_update",
+        data: { id: vehicleId, status, route_id },
       });
 
       res.json({ ok: true });

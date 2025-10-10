@@ -8,7 +8,7 @@ import {
 } from "../services/admin";
 
 const WS_URL =
-  (import.meta.env.VITE_API_BASE || "http://10.81.30.75:5001").replace(/^http/, "ws") +
+  (import.meta.env.VITE_API_BASE || "http://192.168.0.156:5001").replace(/^http/, "ws") +
   "/ws";
 
 export default function Notifications() {
