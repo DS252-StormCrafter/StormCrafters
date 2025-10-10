@@ -17,12 +17,12 @@ export default function MapTab() {
 
   const defaultRegion = {
     latitude: 13.0213,
-    longitude: 77.5670,
+    longitude: 77.567,
     latitudeDelta: 0.01,
     longitudeDelta: 0.01 * ASPECT_RATIO,
   };
 
-  // Request location
+  // 🧭 Request user location
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -32,16 +32,18 @@ export default function MapTab() {
         return;
       }
 
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
       setLocation(loc);
       setLoading(false);
     })();
   }, []);
 
-  // WebSocket for shuttle live updates (USER ROLE)
+  // 🚐 WebSocket for live shuttle updates (USER ROLE)
   useEffect(() => {
     const cleanup = wsConnect((msg) => {
-      // Accept only vehicle updates
+      // Handle live vehicle updates
       if (msg.type === "vehicle") {
         setVehicles((prev) => {
           const idx = prev.findIndex((v) => v.id === msg.id);
@@ -54,19 +56,42 @@ export default function MapTab() {
         });
       }
 
-      // Display alert messages for users in console for now
+      // Handle broadcast alerts for users
       if (msg.type === "alert") {
         console.log("📢 User received alert:", msg.message);
         Alert.alert("⚠️ System Alert", msg.message);
       }
     }, "user");
 
-    cleanupRef.current = cleanup;
+    // 🧩 Defensive assignment (cleanup might not be a function)
+    if (typeof cleanup === "function") {
+      cleanupRef.current = cleanup;
+    } else if (cleanup && typeof cleanup.close === "function") {
+      cleanupRef.current = cleanup.close.bind(cleanup);
+    } else {
+      cleanupRef.current = null;
+    }
+
+    // 🧹 Proper cleanup on unmount
     return () => {
-      if (cleanupRef.current) cleanupRef.current();
+      try {
+        if (cleanupRef.current && typeof cleanupRef.current === "function") {
+          cleanupRef.current();
+          console.log("🧹 Cleaned up MapTab WS");
+        } else if (
+          cleanupRef.current &&
+          typeof (cleanupRef.current as any).close === "function"
+        ) {
+          (cleanupRef.current as any).close();
+          console.log("🧹 Closed WS object safely");
+        }
+      } catch (err) {
+        console.warn("⚠️ Cleanup error:", err);
+      }
     };
   }, []);
 
+  // 🧭 Show loader while fetching location
   if (loading) {
     return (
       <View style={styles.center}>
@@ -85,7 +110,7 @@ export default function MapTab() {
       }
     : defaultRegion;
 
-  // Helper to pick color by status
+  // 🎨 Helper to color markers by vehicle status
   const getStatusColor = (status?: string) => {
     if (!status) return "#f59e0b"; // 🟠 unknown
     const s = status.toLowerCase();
@@ -120,7 +145,9 @@ export default function MapTab() {
               key={key}
               coordinate={{ latitude: lat, longitude: lng }}
               title={v.vehicle_id || `Vehicle ${idx + 1}`}
-              description={`Vacant: ${v.vacant ?? v.capacity - v.occupancy ?? "?"}/${v.capacity ?? "?"}`}
+              description={`Vacant: ${
+                v.vacant ?? v.capacity - v.occupancy ?? "?"
+              }/${v.capacity ?? "?"}`}
               pinColor={color}
             >
               <MapShuttleMarker vehicle={v} color={color} />
@@ -131,10 +158,13 @@ export default function MapTab() {
                     { borderColor: color, backgroundColor: "#fff" },
                   ]}
                 >
-                  <Text style={[styles.title, { color }]}>{v.vehicle_id || key}</Text>
+                  <Text style={[styles.title, { color }]}>
+                    {v.vehicle_id || key}
+                  </Text>
                   <Text>Route: {v.route_id ?? "N/A"}</Text>
                   <Text>
-                    Vacant: {v.vacant ?? v.capacity - v.occupancy ?? "?"}/{v.capacity ?? "?"}
+                    Vacant:{" "}
+                    {v.vacant ?? v.capacity - v.occupancy ?? "?"}/{v.capacity ?? "?"}
                   </Text>
                   <Text>Status: {v.status ?? "Unknown"}</Text>
                 </View>
