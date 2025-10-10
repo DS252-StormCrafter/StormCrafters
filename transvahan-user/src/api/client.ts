@@ -19,7 +19,7 @@ import { wsConnect } from "./ws"; // ✅ unified WS handler
 // =============================================
 
 const NGROK_BACKEND = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
-const LOCAL_API_URL = "http://192.168.0.156:5001";
+const LOCAL_API_URL = "http://10.24.240.179:5001";
 
 const API_BASE_URL =
   NGROK_BACKEND && NGROK_BACKEND.trim() !== ""

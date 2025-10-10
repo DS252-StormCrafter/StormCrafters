@@ -91,7 +91,7 @@ console.log("🛠️ Routes loaded successfully.");
 // -----------------------------------------------------------------------------
 const PORT = process.env.PORT || 5001;
 const server = app.listen(PORT, () =>
-  console.log(`🚀 Backend running on http://192.168.0.156:${PORT}`)
+  console.log(`🚀 Backend running on http://10.24.240.179:${PORT}`)
 );
 
 const wss = new WebSocketServer({ noServer: true });
