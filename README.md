@@ -36,7 +36,7 @@
  
  ```bash
  # Clone repo
- git clone -b <add_branch_name> --single-branch https://github.com/skmanoj2006/StormCrafters.git
+ git clone https://github.com/skmanoj2006/StormCrafters.git
  cd StormCrafters
  
  # 1) Backend env
@@ -51,13 +51,23 @@
  cp transvahan-user/.env.example transvahan-user/.env
  # later, set API_BASE_URL + WS_URL after backend URL is known
  
+ ```
  
  
+ ## 3. Environment Variables Setup -1
+ Generate a JWT_SECRET_KEY
+ ```bash
+ head -c 32 /dev/urandom | base64
+```
+
+ - Create a Firebase Project in the Firebase Console 
+ - Go to Project Settings -> Service Accounts -> Generate new private key (Node.js) 
+ - Save the downloaded file in ```./backend```
+
+  In the ```./backend``` run the following commands
  
- Replace each variable:
+ ```bash
  
- 
- cd backend
  
  # JWT Secret (generate one if you like)
  sed -i 's|your_jwt_secret_key|<paste_it_here>|g' .env
@@ -66,19 +76,27 @@
  sed -i 's|ur_email|<paste_it_here>|g' .env
  sed -i 's|ur_app_password|<paste_it_here>|g' .env
  
- # Firebase
- sed -i 's|ur_project_id|<paste_it_here>|g' .env
- sed -i 's|ur_service_account_key_file.json|<paste_it_here>|g' .env
+ # Firebase 
+ sed -i 's|ur_project_id|<paste_it_here>|g' .env  # Present in downloaded file
+ sed -i 's|ur_service_account_key_file.json|<paste_it_here>|g' .env # Name of the file <downloaded.json>
  
  # Google Maps
  sed -i 's|ur_google_maps_api_key|<paste_it_here>|g' .env
  
- 
+ ```
  
  You can quickly confirm your variables are set correctly:
+ ```bash
  
  grep -v '^#' .env
  
+ ```
+In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
+- Replace <YOUR_GOOGLE_MAPS_KEY> by ur Google maps API key
+ 
+
+
+## 4. Cloud Configuration
  
  ```bash
  cd ..
@@ -87,9 +105,11 @@
  # Enter your AWS Access Key, Secret, Region (ap-south-1)
  
  
- aws ecr create-repository --repository-name <unique_repo_name>
- 
- 
+ aws ecr create-repository --repository-name <unique_repo_name>   # Remember this repo name
+ ```
+
+## 5. Infrastructure Deployment in Cloud
+ In ```./infra``` run the below commands
  ```bash
  
  cd infra
@@ -101,14 +121,11 @@
  terraform output
  # Note admin_portal_website_endpoint
  
+ ```
  
- 
+ ## 6. Build and Push Backend to AWS ECR
  
  ```bash
- # ===============================
- # 🐳 4️⃣ Build and Push Backend to AWS ECR
- # ===============================
- 
  cd ../backend
  
  # 1️⃣ Authenticate Docker with AWS ECR
@@ -124,54 +141,36 @@
  
  # 4️⃣ Push the image to ECR
  docker push <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<unique_repo_name>:latest
+```
+
+## 7. Deploy Backend on AWS App Runner
+ - Go to AWS Console → App Runner
+ - Create service
+ - Choose "Container registry" → "Amazon ECR"
+ - Select your uploaded image (<unique_repo_name>)
+ - Port: 5001
+ - Deployment: Automatic (to redeploy on image push)
+ - Service name: transvahan-backend
+ - Allow public access
+
+ The above step will take time to deploy
  
+ - Once deployed, note down the service URL (e.g. https://abcdefghi.ap-south-1.awsapprunner.com)
+ - This is ur <APP_RUNNER_BACKEND_URL> 
+ - And make sure that what ever u have copied looks like this abcdefghi.ap-south-1.awsapprunner.com
+
+ ### Health Check
  ```bash
- # ===============================
- # 🚀 5️⃣ Deploy Backend on AWS App Runner
- # ===============================
- # Go to AWS Console → App Runner
- # → Create service
- # → Choose "Container registry" → "Amazon ECR"
- # → Select your uploaded image (<unique_repo_name>)
- # → Port: 5001
- # → Deployment: Automatic (to redeploy on image push)
- # → Service name: transvahan-backend
- # → Allow public access
- 
- # This will take time
- 
- # Once deployed, note down the service URL (e.g. https://abcdefghi.ap-south-1.awsapprunner.com) this is ur <APP_RUNNER_BACKEND_URL> 
- # And make sure that what ever u have copied looks like this abcdefghi.ap-south-1.awsapprunner.com
  
  curl -i https://<APP_RUNNER_URL>/health
  
- #✅ Should return {"ok": true}
+ # Should Return {"ok": true}
+```
+
+## 8. Environment Variables Setup -2
+
+In the ```./admin-portal``` run the following commands
  ```bash
- cd ../transvahan-user
- 
- # Replace the API Base URL (App Runner backend endpoint)
- sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
- 
- # Replace the Google Maps API key
- sed -i 's|<YOUR_GOOGLE_MAPS_API_KEY>|<paste_it_here>|g' .env
- 
- 
- You can quickly confirm your variables are set correctly:
- 
- grep -v '^#' .env
- 
- # ===============================
- # 🧭 7️⃣ Build and Deploy Admin Portal (Frontend)
- # ===============================
- 
- npm install
- npm run build
- 
- # Upload to S3 bucket (from terraform output)
- aws s3 sync dist/ s3://stormcrafters-admin-portal-dev-1234 --delete
- 
- ```bash
- cd ../admin-portal
  
  # Replace App Runner backend URL
  sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
@@ -187,11 +186,42 @@
      #     "USE_MOCK": "false",
      #     "GOOGLE_MAPS_API_KEY": "AIzaSyC5ya2Rnn2eZ9bilsmq1ArOj8ItnRq_c10"
      #   }
+ ```
+
+ ## 9. Build and Deploy Admin Portal (Frontend) 
+ In the ```./admin-portal``` run the following commands
+
+ ```bash
+ npm install
+ npm run build
  
- # ===============================
- # 📱 8️⃣ Build Mobile App (APK)
- # ===============================
+ # Upload to S3 bucket (from terraform output)
+ aws s3 sync dist/ s3://stormcrafters-admin-portal-dev-1234 --delete
+```
+
+
+## 10. Environment Variables Setup -2
+ In ```/transvahan-user``` directory run the following commands
  
+ ```bash
+ 
+ 
+ # Replace the API Base URL (App Runner backend endpoint)
+ sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
+ 
+ # Replace the Google Maps API key
+ sed -i 's|<YOUR_GOOGLE_MAPS_API_KEY>|<paste_it_here>|g' .env
+ 
+ ```
+
+ You can quickly confirm your variables are set correctly:
+```bash 
+ grep -v '^#' .env
+ ```
+
+ ## 11. Build Mobile App (APK)
+ In ```/transvahan-user``` directory run the following commands
+ ```bash
  npm install -g eas-cli
  eas login
  eas build --platform android --profile production
@@ -205,8 +235,12 @@
  #                // eas: {
  #                //   projectId: "your-eas-project-id",
  #                // },
- 
- # APK will appear in your Expo dashboard
+
+ eas build --platform android --profile production
+
+ ```
+
+ ## 12. Download and install the apk file
  
  
  
