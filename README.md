@@ -97,7 +97,7 @@ In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
 
 
 ## 4. Cloud Configuration
- 
+ - In the file ```./infra/terraform.tfvars``` set a unique_bucket_name
  ```bash
  cd ..
  
@@ -196,11 +196,11 @@ In the ```./admin-portal``` run the following commands
  npm run build
  
  # Upload to S3 bucket (from terraform output)
- aws s3 sync dist/ s3://stormcrafters-admin-portal-dev-1234 --delete
+ aws s3 sync dist/ s3://<unique_bucket_name> --delete
 ```
 
 
-## 10. Environment Variables Setup -2
+## 10. Environment Variables Setup -3
  In ```/transvahan-user``` directory run the following commands
  
  ```bash
