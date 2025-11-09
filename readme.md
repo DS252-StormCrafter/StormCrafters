@@ -2,6 +2,11 @@
 
 A cloud-based platform for IISc shuttle tracking and management. This project includes a React Native mobile app for users, a React admin portal, and a Node.js backend deployed on AWS.
 
+A cloud-based platform for IISc shuttle tracking and management.  
+Part of **DS252: Introduction to Cloud Computing (Aug 2025).**
+
+---
+
 ## 🚍 Features
 - Live shuttle tracking (GPS updates every 2s).
 - Route maps, stops, and 20-min schedule display.
@@ -228,3 +233,50 @@ This project uses GitHub Actions for CI, defined in `.github/workflows/ci.yml`.
 -   **Triggers**: The pipeline runs on `push` and `pull_request` events to the `postmid1` and `dev` branches.
 -   **Jobs**: It runs separate jobs to install dependencies, run tests, and perform production builds for all major services (`admin-portal`, `transvahan-user`, `cloud-chat`, `backend`, `eta-service`, `transvahan-eta`).
 -   **Note**: This CI pipeline *does not deploy* to production. Deployment is a manual process following the steps outlined above.
+- Driver app for GPS & occupancy management.
+- Admin dashboard for monitoring & notifications.
+- Cross-platform: Android, iOS, Web.
+
+---
+
+## 📂 Repo Structure
+- `prd.md` → Product Requirements Document  
+- `arch.md` → System Architecture  
+- `modules.md` → Module-wise breakdown  
+- `src/` → Codebase (User app, Driver app, Admin portal, backend)  
+- `docs/` → Screenshots, diagrams, presentations  
+
+---
+
+## ⚙️ Tech Stack
+- **Frontend:** React Native/Flutter (mobile), React (web).
+- **Backend:** AWS Lambda / Google Cloud Functions.
+- **Database:** Firestore / Firebase Realtime Database.
+- **Maps & GPS:** Google Maps API.
+- **Realtime updates:** WebSockets / Firebase.
+- **Auth:** OAuth2 / SSO.
+- **Notifications:** Firebase Cloud Messaging.
+
+---
+
+## 🚀 Deployment
+- Hosted on AWS/Azure/GCP (serverless backend).
+- CI/CD with GitHub Actions.
+- Auto-scaling enabled.
+
+---
+
+## 📅 Milestones
+- **12 Sep** – Proposal Presentation  
+- **10 Oct** – Midterm Review (67% complete)  
+- **7 Nov** – Final Submission  
+
+---
+
+## 👥 Team
+- Backend & Cloud – [Name]  
+- Mobile Frontend – [Name]  
+- Driver App – [Name]  
+- Admin Portal – [Name]  
+- QA & Testing – [Name]  
+- Project Lead – [Name]  
