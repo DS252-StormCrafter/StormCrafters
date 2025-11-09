@@ -1,0 +1,42 @@
+[
+  {
+    "routeCode": "RED",
+    "routeName": "Main Gate ↔ CSA",
+    "color": "#FF0000",
+    "active": true,
+    "stops": [
+      { "id": "s1", "name": "Main Gate", "lat": 13.014, "lng": 77.567 },
+      { "id": "s2", "name": "CSA", "lat": 13.021, "lng": 77.566 }
+    ],
+    "scheduledTrips": [
+      { "tripId": "red_1", "departureTimes": ["09:00", "09:20", "09:40", "10:00"] },
+      { "tripId": "red_2", "departureTimes": ["10:20", "10:40", "11:00"] }
+    ]
+  },
+  {
+    "routeCode": "GREEN",
+    "routeName": "Hostel ↔ Library",
+    "color": "#00FF00",
+    "active": true,
+    "stops": [
+      { "id": "s3", "name": "Hostel", "lat": 13.018, "lng": 77.573 },
+      { "id": "s4", "name": "Library", "lat": 13.016, "lng": 77.566 }
+    ],
+    "scheduledTrips": [
+      { "tripId": "green_1", "departureTimes": ["09:10", "09:30", "09:50", "10:10"] }
+    ]
+  },
+  {
+    "routeCode": "BLUE",
+    "routeName": "Admin Block ↔ Gym",
+    "color": "#0000FF",
+    "active": true,
+    "stops": [
+      { "id": "s5", "name": "Admin Block", "lat": 13.019, "lng": 77.569 },
+      { "id": "s6", "name": "Gym", "lat": 13.022, "lng": 77.574 }
+    ],
+    "scheduledTrips": [
+      { "tripId": "blue_1", "departureTimes": ["09:15", "09:35", "09:55", "10:15"] }
+    ]
+  }
+]

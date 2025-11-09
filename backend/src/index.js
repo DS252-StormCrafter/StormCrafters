@@ -1,0 +1,449 @@
+/**
+ * backend/src/index.js
+ * WebSocket auth-first + Direction-aware broadcast + rock-solid CORS for ngrok + localhost
+ */
+import express from "express";
+import admin from "firebase-admin";
+import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import cors from "cors";
+import { WebSocketServer } from "ws";
+import * as querystring from "querystring";
+import jwt from "jsonwebtoken";
+import { authenticate } from "./middleware/auth.js";
+
+import authRoutes from "./routes/auth.js";
+import vehicleRoutes from "./routes/vehicle.js";
+import routeRoutes from "./routes/route.js";
+import feedbackRoutes from "./routes/feedback.js";
+import alertsRoutes from "./routes/alerts.js";
+import adminRoutes from "./routes/admin.js";
+import driverRoutes from "./routes/driver.js";
+import stopsRoutes from "./routes/stops.js";
+import plannerRoutes from "./routes/planner.js";
+import liveRoutes from "./routes/live.js";
+import assignmentRoutes from "./routes/assignment.js";
+import { runReservationReaper } from "./services/reservationReaper.js";
+
+// 🔹 New imports
+import reportsRoutes from "./routes/reports.js";
+import { runTripSynthesizer } from "./services/tripSynthesizer.js";
+import etaRoutes from "./routes/eta.js"; // ⬅️ NEW
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
+// ----------------------------------------------------------------------------
+// Firebase init
+// ----------------------------------------------------------------------------
+function initFirebase() {
+  if (admin.apps.length) return admin.app();
+
+  const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST?.trim();
+  const projectId =
+    process.env.FIREBASE_PROJECT_ID?.trim() || "midterm-transvahan";
+
+  if (emulatorHost) {
+    console.log(`🔥 Using Firestore Emulator: ${emulatorHost}`);
+    admin.initializeApp({ projectId });
+    const dbEmu = admin.firestore();
+    dbEmu.settings({ host: emulatorHost, ssl: false });
+    return admin.app();
+  }
+
+  const servicePath = path.resolve(
+    process.cwd(),
+    process.env.GOOGLE_APPLICATION_CREDENTIALS || ""
+  );
+  if (!fs.existsSync(servicePath)) {
+    console.error("❌ Missing service account JSON:", servicePath);
+    process.exit(1);
+  }
+
+  const serviceAccount = JSON.parse(fs.readFileSync(servicePath, "utf8"));
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    projectId: serviceAccount.project_id || projectId,
+  });
+  console.log(
+    `☁️ Firebase initialized (projectId=${serviceAccount.project_id})`
+  );
+  return admin.app();
+}
+initFirebase();
+const db = admin.firestore();
+
+// ----------------------------------------------------------------------------
+// Express app
+// ----------------------------------------------------------------------------
+const app = express();
+app.set("trust proxy", true);
+
+/**
+ * 🔥 NUCLEAR CORS FIX (DEV ONLY)
+ * Allow ALL origins + credentials.
+ */
+app.use(
+  cors({
+    origin: true, // reflect request origin
+    credentials: true,
+  })
+);
+
+// Generic OPTIONS handler (no wildcard path, so no path-to-regexp crash)
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+// Keep ngrok header helper (harmless)
+app.use((req, res, next) => {
+  if (req.headers["ngrok-skip-browser-warning"] === undefined)
+    req.headers["ngrok-skip-browser-warning"] = "true";
+  res.setHeader("ngrok-skip-browser-warning", "true");
+  next();
+});
+
+app.use(express.json({ limit: "1mb" }));
+
+// Request logger
+app.use((req, res, next) => {
+  const start = Date.now();
+  console.log(`➡️  ${req.method} ${req.originalUrl}`);
+  res.on("finish", () =>
+    console.log(
+      `⬅️  ${req.method} ${req.originalUrl} -> ${res.statusCode} (${
+        Date.now() - start
+      }ms)`
+    )
+  );
+  next();
+});
+
+// ---------------- Routes that don't need wss ----------------
+app.use("/auth", authRoutes(db));
+app.use("/vehicles", vehicleRoutes(db));
+app.use("/vehicle", authenticate, vehicleRoutes(db));
+
+/**
+ * ✅ NEW: Reservation summary for admin DemandLayer
+ *
+ * GET /routes/:routeId/reservations/summary?direction=to|fro
+ */
+app.get("/routes/:routeId/reservations/summary", async (req, res) => {
+  try {
+    const { routeId } = req.params;
+    const directionRaw = req.query.direction;
+    const direction =
+      directionRaw === "to" || directionRaw === "fro"
+        ? directionRaw
+        : undefined;
+
+    if (!routeId) {
+      return res.status(400).json({ error: "routeId is required" });
+    }
+
+    let query = db.collection("reservations").where("route_id", "==", routeId);
+
+    if (direction) {
+      query = query.where("direction", "==", direction);
+    }
+
+    const ACTIVE_STATUSES = new Set([
+      "created",
+      "waiting",
+      "assigned",
+      "accepted",
+      "enroute",
+      "pending",
+      "queued",
+    ]);
+
+    const SNAP_LIMIT = 1000;
+    const snap = await query.limit(SNAP_LIMIT).get();
+
+    const waitingBySeq = {};
+    let totalWaiting = 0;
+
+    snap.forEach((doc) => {
+      const r = doc.data() || {};
+      const status = (r.status || "").toString().toLowerCase();
+
+      if (status && !ACTIVE_STATUSES.has(status)) {
+        return;
+      }
+
+      const seqRaw =
+        r.sequence ??
+        r.source_sequence ??
+        r.dest_sequence ??
+        r.stop_sequence ??
+        null;
+
+      const seq = Number(seqRaw);
+      if (!Number.isFinite(seq)) return;
+
+      const countRaw =
+        r.waiting_count ??
+        r.count ??
+        r.party_size ??
+        r.pax ??
+        r.riders ??
+        1;
+
+      const count = Number.isFinite(Number(countRaw))
+        ? Number(countRaw)
+        : 1;
+
+      if (count <= 0) return;
+
+      waitingBySeq[seq] = (waitingBySeq[seq] || 0) + count;
+      totalWaiting += count;
+    });
+
+    const stops = Object.keys(waitingBySeq)
+      .map((k) => ({
+        sequence: Number(k),
+        waiting_count: waitingBySeq[k],
+      }))
+      .sort((a, b) => a.sequence - b.sequence);
+
+    return res.json({
+      route_id: routeId,
+      direction: direction ?? null,
+      total_waiting: totalWaiting,
+      stops,
+    });
+  } catch (err) {
+    console.error(
+      "❌ /routes/:routeId/reservations/summary error",
+      err
+    );
+    return res
+      .status(500)
+      .json({ error: "Failed to compute reservation summary" });
+  }
+});
+
+app.use("/routes", routeRoutes(db));
+app.use("/stops", routeRoutes(db));
+app.use("/feedback", authenticate, feedbackRoutes(db));
+
+app.get("/admin/analytics", async (req, res) => {
+  try {
+    console.log("📊 Computing admin analytics…");
+    const [driversSnap, usersSnap] = await Promise.all([
+      db.collection("drivers").get(),
+      db.collection("users").get(),
+    ]);
+    res.json({
+      peakUsage: "Not computed yet",
+      activeDrivers: driversSnap.size,
+      totalUsers: usersSnap.size,
+    });
+  } catch (err) {
+    console.error("❌ /admin/analytics error:", err);
+    res.status(500).json({ error: "Failed to compute analytics" });
+  }
+});
+
+app.use("/admin", authenticate, adminRoutes(db));
+app.use("/assignments", assignmentRoutes(db));
+
+// 🔹 Mount new reporting routes
+app.use("/reports", reportsRoutes(db));
+
+// 🔹 Mount ETA routes
+app.use("/eta", etaRoutes(db)); // ⬅️ NEW
+
+console.log("🛠️ Routes loaded successfully.");
+
+// ----------------------------------------------------------------------------
+// HTTP + WebSocket Server
+// ----------------------------------------------------------------------------
+const PORT = process.env.PORT || 5002;
+const server = app.listen(PORT, () =>
+  console.log(`🚀 Backend running on http://localhost:${PORT}`)
+);
+
+const wss = new WebSocketServer({ noServer: true });
+
+// 🔗 Make wss globally visible for broadcast helpers in other route modules
+globalThis.__transvahan_wss__ = wss;
+
+// -------------- WebSocket upgrade & broadcast ------------------
+server.on("upgrade", (req, socket, head) => {
+  try {
+    const url = req.url || "";
+    let rawRole = "";
+    const pathMatch = (url || "").match(/^\/ws\/([a-z]+)/i);
+    if (pathMatch) rawRole = pathMatch[1];
+    if (!rawRole && url.includes("?")) {
+      const parsed = querystring.parse(url.split("?")[1]);
+      rawRole = parsed.role
+        ? String(parsed.role).toLowerCase().trim()
+        : "";
+    }
+    const headerRaw = req.headers["x-user-role"]
+      ? String(req.headers["x-user-role"]).toLowerCase().trim()
+      : "";
+    const candidate = rawRole || headerRaw || "";
+    req.roleParam = ["user", "driver", "admin"].includes(candidate)
+      ? candidate
+      : "user";
+  } catch {
+    req.roleParam = "user";
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit("connection", ws, req);
+  });
+});
+
+wss.on("connection", (ws, req) => {
+  let roleGuess = req.roleParam || "user";
+  const clientIp =
+    req.headers["x-forwarded-for"]?.split(",")[0] ||
+    req.socket.remoteAddress ||
+    "unknown";
+  let broadcastInterval = null;
+  let authTimer = null;
+  let authenticated = false;
+  const DEMAND_TTL_MS = 8 * 60 * 1000;
+
+  const startBroadcast = () => {
+    if (broadcastInterval) return;
+    ws.userRole = roleGuess;
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "welcome",
+          data: {
+            role: ws.userRole,
+            ip: clientIp,
+            time: new Date().toISOString(),
+          },
+        })
+      );
+    } catch {}
+    broadcastInterval = setInterval(async () => {
+      try {
+        const snapshot = await db.collection("vehicles").get();
+        const now = Date.now();
+        snapshot.forEach((doc) => {
+          const v = doc.data();
+          const demandTs = Number(v.demand_ts || 0);
+          const demandActive =
+            !!v.demand_high &&
+            demandTs &&
+            now - demandTs < DEMAND_TTL_MS;
+          const shaped = {
+            id: doc.id,
+            vehicle_id: v.plateNo ?? v.vehicle_id ?? doc.id,
+            route_id: v.currentRoute ?? "unknown",
+            direction: v.direction ?? "to",
+            lat: v.location?.lat ?? v.location?.latitude ?? 0,
+            lng: v.location?.lng ?? v.location?.longitude ?? 0,
+            occupancy: v.occupancy ?? 0,
+            capacity: v.capacity ?? 4,
+            vacant: (v.capacity ?? 4) - (v.occupancy ?? 0),
+            status: v.status ?? "inactive",
+            updated_at: v.location?.timestamp
+              ? new Date(v.location.timestamp).toISOString()
+              : new Date().toISOString(),
+            demand_high: demandActive,
+          };
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: "vehicle", data: shaped }));
+          }
+        });
+      } catch (err) {
+        console.error("WebSocket broadcast error:", err);
+      }
+    }, 1500);
+  };
+
+  authTimer = setTimeout(() => {
+    if (!authenticated) startBroadcast();
+  }, 4000);
+
+  ws.on("message", (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "auth") {
+        clearTimeout(authTimer);
+        const token = msg.token || msg.jwt || msg.authToken;
+        if (!token) return startBroadcast();
+        try {
+          const secret = process.env.JWT_SECRET || "secret";
+          const decoded = jwt.verify(token, secret);
+          const tokenRole = (
+            decoded.role || decoded.userRole || decoded.type || ""
+          )
+            .toString()
+            .toLowerCase()
+            .trim();
+          if (["driver", "user", "admin"].includes(tokenRole))
+            roleGuess = tokenRole;
+          ws.user = decoded;
+          ws.userRole = roleGuess;
+          authenticated = true;
+          ws.send(
+            JSON.stringify({
+              type: "auth_ack",
+              success: true,
+              role: ws.userRole,
+            })
+          );
+        } catch {
+          ws.send(
+            JSON.stringify({
+              type: "auth_ack",
+              success: false,
+              error: "invalid_token",
+            })
+          );
+        } finally {
+          startBroadcast();
+        }
+      } else if (msg.type === "ping") {
+        ws.send(JSON.stringify({ type: "pong", time: Date.now() }));
+      }
+    } catch {}
+  });
+
+  ws.on("close", () => {
+    if (authTimer) clearTimeout(authTimer);
+    if (broadcastInterval) clearInterval(broadcastInterval);
+  });
+});
+
+// Routes needing wss
+app.use("/driver", driverRoutes(db, wss));
+app.use("/alerts", alertsRoutes(db, wss));
+app.use("/stops", stopsRoutes());
+app.use("/planner", plannerRoutes());
+app.use("/live", liveRoutes(db, wss));
+
+app.get("/health", async (_req, res) => {
+  try {
+    await db.collection("users").limit(1).get();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 🔹 Launch background trip summarizer
+setInterval(() => runTripSynthesizer(db), 30000);
+console.log("🕒 TripSynth initialized (30s interval)");
+
+// 🔹 Launch reservation reaper (detect missed reservations)
+setInterval(() => runReservationReaper(db), 5000);
+console.log("🕒 ReservationReaper initialized (5s interval)");
+
+export { db, wss };
