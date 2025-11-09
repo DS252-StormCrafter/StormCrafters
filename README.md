@@ -97,7 +97,6 @@ In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
 
 
 ## 4. Cloud Configuration
- - In the file ```./infra/terraform.tfvars``` set a unique_bucket_name
  ```bash
  cd ..
  
@@ -107,6 +106,8 @@ In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
  
  aws ecr create-repository --repository-name <unique_repo_name>   # Remember this repo name
  ```
+ - In the file ```./infra/terraform.tfvars``` set a unique_bucket_name
+
 
 ## 5. Infrastructure Deployment in Cloud
  In ```./infra``` run the below commands
@@ -197,6 +198,8 @@ In the ```./admin-portal``` run the following commands
  
  # Upload to S3 bucket (from terraform output)
  aws s3 sync dist/ s3://<unique_bucket_name> --delete
+
+# The admin portal is available in the endpoint given by Step 5 terraform output command 
 ```
 
 
