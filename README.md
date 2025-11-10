@@ -54,7 +54,7 @@
  ```
  
  
- ## 3. Environment Variables Setup -1
+ ## ⚡ 3. Backend Environment Setup
  Generate a JWT_SECRET_KEY
  ```bash
  head -c 32 /dev/urandom | base64
@@ -69,10 +69,10 @@
  ```bash
  
  
- # JWT Secret (generate one if you like)
+ # JWT Secret (generate one in the previous step)
  sed -i 's|your_jwt_secret_key|<paste_it_here>|g' .env
  
- # Gmail SMTP
+ # Gmail SMTP (For OTP services enter a valid e-mail and passkey) 
  sed -i 's|ur_email|<paste_it_here>|g' .env
  sed -i 's|ur_app_password|<paste_it_here>|g' .env
  
@@ -83,11 +83,7 @@
  # Google Maps
  sed -i 's|ur_google_maps_api_key|<paste_it_here>|g' .env
  
- ```
- 
- You can quickly confirm your variables are set correctly:
- ```bash
- 
+ #Verify
  grep -v '^#' .env
  
  ```
@@ -104,12 +100,12 @@ In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
  # Enter your AWS Access Key, Secret, Region (ap-south-1)
  
  
- aws ecr create-repository --repository-name <unique_repo_name>   # Remember this repo name
+ aws ecr create-repository --repository-name <unique_repo_name>   # Note this repo name for Step 6
  ```
  - In the file ```./infra/terraform.tfvars``` set a unique_bucket_name
 
 
-## 5. Infrastructure Deployment in Cloud
+## 🧱 5. Infrastructure Deployment (Terraform)
  In ```./infra``` run the below commands
  ```bash
  
@@ -123,8 +119,10 @@ In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
  # Note admin_portal_website_endpoint
  
  ```
- 
- ## 6. Build and Push Backend to AWS ECR
+If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``` with a globally unique bucket name and rerun terraform apply.
+
+
+ ## 🐳 6. Build and Push Backend to AWS ECR
  
  ```bash
  cd ../backend
@@ -168,43 +166,36 @@ In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
  # Should Return {"ok": true}
 ```
 
-## 8. Environment Variables Setup -2
+## 🧩 8. Environment Variables Setup -2 (Admin Portal)
 
 In the ```./admin-portal``` run the following commands
  ```bash
- 
+ cd admin-portal
+
  # Replace App Runner backend URL
  sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
  
  # Replace Google Maps API key
  sed -i 's|<YOUR_GOOGLE_MAPS_KEY>|<paste_it_here>|g' .env
- 
- 
- # Also make the same changes in eas.json you will need to change it in two places
- # "env": {
-     #     "API_BASE_URL": "https://<APP_RUNNER_BACKEND_URL>",
-     #     "WS_URL": "wss://<APP_RUNNER_BACKEND_URL>/ws",
-     #     "USE_MOCK": "false",
-     #     "GOOGLE_MAPS_API_KEY": "AIzaSyC5ya2Rnn2eZ9bilsmq1ArOj8ItnRq_c10"
-     #   }
+
  ```
 
- ## 9. Build and Deploy Admin Portal (Frontend) 
+ ## 🌐 9. Build and Deploy Admin Portal
  In the ```./admin-portal``` run the following commands
 
  ```bash
  npm install
  npm run build
  
- # Upload to S3 bucket (from terraform output)
- aws s3 sync dist/ s3://<unique_bucket_name> --delete
-
-# The admin portal is available in the endpoint given by Step 5 terraform output command 
+ # Upload to the Terraform-created bucket
+BUCKET_NAME=$(terraform output -raw admin_portal_bucket_name)
+aws s3 sync dist/ s3://$BUCKET_NAME --delete
 ```
+You can now access your admin portal via the website endpoint printed by Terraform.
 
 
-## 10. Environment Variables Setup -3
- In ```/transvahan-user``` directory run the following commands
+## 📱 10. Environment Variables Setup -3 (Mobile App)
+ In `/transvahan-user` directory run the following commands
  
  ```bash
  
@@ -215,36 +206,77 @@ In the ```./admin-portal``` run the following commands
  # Replace the Google Maps API key
  sed -i 's|<YOUR_GOOGLE_MAPS_API_KEY>|<paste_it_here>|g' .env
  
- ```
-
- You can quickly confirm your variables are set correctly:
-```bash 
+ # Verify 
  grep -v '^#' .env
  ```
+ Also open `transvahan-user/eas.json` and set:
+```bash
+"env": {
+  "API_BASE_URL": "https://<APP_RUNNER_BACKEND_URL>",
+  "WS_URL": "wss://<APP_RUNNER_BACKEND_URL>/ws",
+  "USE_MOCK": "false",
+  "GOOGLE_MAPS_API_KEY": "<your_maps_key>"
+}
+```
 
  ## 11. Build Mobile App (APK)
- In ```/transvahan-user``` directory run the following commands
- ```bash
- npm install -g eas-cli
- eas login
- eas build --platform android --profile production
- 
- #you will get an error  open the file app.config.ts in the folder transvahan-user
- # And follow the steps from line 50-55 precisely the below steps
- 
- #            // after getting the error with missing env variables in EAS Build,
- #                // paste the eas project here
- #                // it should look like this:
- #                // eas: {
- #                //   projectId: "your-eas-project-id",
- #                // },
 
- eas build --platform android --profile production
+ - Create an account in `https://expo.dev/` 
+ - The above Credentials will be used in `eas login`
+ ```bash
+ # Ensure EAS CLI is installed
+npm install -g eas-cli
+
+cd transvahan-user
+eas login
+
+# First build attempt
+eas build --platform android --profile production
+
+# If you see "Missing eas.projectId":
+# Open transvahan-user/app.config.ts and add:
+# eas: { projectId: "your-eas-project-id" },
+
+# Then rebuild
+eas build --platform android --profile production
+
 
  ```
 
- ## 12. Download and install the apk file
+ ## 📲 12. Download and Install the APK
+
+After the build completes, visit the EAS dashboard link printed in your terminal, or list your builds:
+```bash
+eas build:list
+```
+
+Download the .apk, install it on your Android device, and enjoy your working TransVahan app 🚖
  
+
+ ## ✅ Quick Reference
+
+ ### ✅ Quick Reference
+
+| Step | Purpose | Command |
+|------|----------|----------|
+| **Terraform Infra** | Provision AWS resources (S3, IAM, etc.) | `cd infra && terraform apply` |
+| **Build Backend** | Build Node.js backend Docker image | `docker build -t transvahan-backend .` |
+| **Push to ECR** | Push image to AWS Elastic Container Registry | `docker push <repo_uri>:latest` |
+| **Deploy App Runner** | Deploy backend container to App Runner | *Use AWS Console* |
+| **Sync Frontend** | Upload built admin portal to S3 | `aws s3 sync dist/ s3://<bucket>` |
+| **Build APK** | Build mobile app using Expo EAS | `eas build --platform android` |
+
+
+
+
+---
+
+**Author:** Team StormCrafters  
+**Region:** `ap-south-1`  
+**Stack:** Node.js • React • React Native • Firebase • AWS • Terraform  
+**Version:** 1.0.0
+
+---
  
  
  
