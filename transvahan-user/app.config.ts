@@ -11,7 +11,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   return {
     ...config,
     name: "Transvahan User",
-    slug: "transvahan-user",
+    slug: "<Paste_your_app_slug_here>",
 
     // App versioning for stores / installation
     version: config.version ?? "1.0.0",
@@ -47,12 +47,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       WS_URL: wsUrl,
       USE_MOCK: useMock,
       GOOGLE_MAPS_API_KEY: googleMapsKey,
-      // after getting the error with missing env variables in EAS Build,
-      // paste the eas project here
-      // it should look like this:
-      // eas: {
-      //   projectId: "your-eas-project-id",
-      // },
+      eas: {
+        projectId: "<paste-your-eas-project-id>",
+      },
     },
   };
 };
