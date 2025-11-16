@@ -1,6 +1,6 @@
 /**
  * backend/src/index.js
- * WebSocket auth-first + Direction-aware broadcast + rock-solid CORS for ngrok + localhost
+ * WebSocket auth-first + Direction-aware broadcast + rock-solid CORS for localhost
  */
 import express from "express";
 import admin from "firebase-admin";
@@ -82,18 +82,64 @@ const db = admin.firestore();
 const app = express();
 app.set("trust proxy", true);
 
-/**
- * 🔥 NUCLEAR CORS FIX (DEV ONLY)
- * Allow ALL origins + credentials.
- */
-app.use(
-  cors({
-    origin: true, // reflect request origin
-    credentials: true,
-  })
-);
+// ----------------------------------------------------------------------------
+// 🔒 Secure CORS configuration
+// ----------------------------------------------------------------------------
+
+// Default allowed origins (your current setup)
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:3001", // Admin portal
+  "http://localhost:8081", // User app
+];
+
+// Optional extra origins via env: CORS_ORIGINS="http://foo.com,https://bar.com"
+const extraOrigins =
+  process.env.CORS_ORIGINS?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean) || [];
+
+const ALLOWED_ORIGINS = new Set([...DEFAULT_ALLOWED_ORIGINS, ...extraOrigins]);
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Non-browser / same-origin / curl / Postman → no Origin header
+    if (!origin) {
+      if (process.env.DEBUG_CORS === "1") {
+        console.log("🌐 CORS: no Origin header (likely backend/script)");
+      }
+      return callback(null, true);
+    }
+
+    if (ALLOWED_ORIGINS.has(origin)) {
+      if (process.env.DEBUG_CORS === "1") {
+        console.log(`✅ CORS allowed: ${origin}`);
+      }
+      return callback(null, true);
+    }
+
+    // Block anything else (fixes the audit complaint)
+    console.warn(`🚫 CORS blocked origin: ${origin}`);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "ngrok-skip-browser-warning",
+    "x-user-role",
+  ],
+  optionsSuccessStatus: 204,
+};
+
+// Apply CORS for all routes
+app.use(cors(corsOptions));
+
+// ❌ REMOVED: app.options("*", cors(corsOptions));  // this caused path-to-regexp error
 
 // Generic OPTIONS handler (no wildcard path, so no path-to-regexp crash)
+// CORS headers are already set by cors() above; this just ends the request.
 app.use((req, res, next) => {
   if (req.method === "OPTIONS") {
     return res.sendStatus(204);
@@ -131,7 +177,7 @@ app.use("/vehicles", vehicleRoutes(db));
 app.use("/vehicle", authenticate, vehicleRoutes(db));
 
 /**
- * ✅ NEW: Reservation summary for admin DemandLayer
+ * ✅ Reservation summary for admin DemandLayer
  *
  * GET /routes/:routeId/reservations/summary?direction=to|fro
  */
