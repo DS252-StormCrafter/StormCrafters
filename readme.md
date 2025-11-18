@@ -1,282 +1,282 @@
-# Transvahan Cloud Shuttle System
 
-A cloud-based platform for IISc shuttle tracking and management. This project includes a React Native mobile app for users, a React admin portal, and a Node.js backend deployed on AWS.
+ # 🚖 TransVahan — Smart Campus Shuttle Management System
+ 
+ **TransVahan** is a full-stack, real-time campus shuttle platform connecting **Users**, **Drivers**, and **Administrators**.  
+ It provides live shuttle tracking, route editing, occupancy analytics, and predictive ETAs — built using Node.js, React, React Native, Firebase, AWS, and Terraform.
+ 
+ ---
+ 
+ ## 🧭 Project Overview
+ 
+ | Module | Description |
+ |--------|-------------|
+ | **Backend** | Node.js + Express + Firebase + WebSocket for APIs & live updates |
+ | **Admin Portal** | React + Vite dashboard for managing routes, vehicles, and drivers |
+ | **User App** | React Native + Expo mobile app (EAS-built APK) |
+ | **Infra** | Terraform + AWS (ECR, App Runner, S3 hosting) |
+ 
+ ---
+ 
+ ## ⚙️ 1. Prerequisites
+ 
+ Install the following tools (latest stable versions recommended):
+ 
+ | Tool | Purpose | Command |
+ |------|----------|---------|
+ | **Node.js** (≥ 20) | For backend & frontend builds | `sudo apt install nodejs npm` |
+ | **Docker** | For backend containerization | [Install Guide](https://docs.docker.com/get-docker/) |
+ | **AWS CLI v2** | To interact with AWS ECR/AppRunner/S3 | [AWS CLI Install](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) |
+ | **Terraform (≥1.6)** | Infrastructure provisioning | `sudo apt install terraform` |
+ | **Expo CLI + EAS CLI** | For React Native APK builds | `npm install -g expo-cli eas-cli` |
+ | **Git** | Version control | `sudo apt install git` |
+ 
+ ---
+ 
+ ## 🌍 2. Repository Setup
+ 
+ ```bash
+ # Clone repo
+ git clone https://github.com/skmanoj2006/StormCrafters.git
+ cd StormCrafters
+ 
+ # 1) Backend env
+ cp backend/.env.example backend/.env
+ # edit backend/.env and fill real secrets
+ 
+ # 2) Admin portal env
+ cp admin-portal/.env.example admin-portal/.env
+ # later, set VITE_API_BASE after backend URL is known
+ 
+ # 3) Mobile app env
+ cp transvahan-user/.env.example transvahan-user/.env
+ # later, set API_BASE_URL + WS_URL after backend URL is known
+ 
+ ```
+ 
+ 
+ ## ⚡ 3. Backend Environment Setup
+ Generate a JWT_SECRET_KEY
+ ```bash
+ head -c 32 /dev/urandom | base64
+```
 
-A cloud-based platform for IISc shuttle tracking and management.  
-Part of **DS252: Introduction to Cloud Computing (Aug 2025).**
+ - Create a Firebase Project in the Firebase Console 
+ - Go to Project Settings -> Service Accounts -> Generate new private key (Node.js) 
+ - Save the downloaded file in ```./backend```
 
----
+  In the ```./backend``` run the following commands
+ 
+ ```bash
+ 
+ 
+ # JWT Secret (generate one in the previous step)
+ sed -i 's|your_jwt_secret_key|<paste_it_here>|g' .env
+ 
+ # Gmail SMTP (For OTP services enter a valid e-mail and passkey) 
+ sed -i 's|ur_email|<paste_it_here>|g' .env
+ sed -i 's|ur_app_password|<paste_it_here>|g' .env
+ 
+ # Firebase 
+ sed -i 's|ur_project_id|<paste_it_here>|g' .env  # Present in downloaded file
+ sed -i 's|ur_service_account_key_file.json|<paste_it_here>|g' .env # Name of the file <downloaded.json>
+ 
+ # Google Maps
+ sed -i 's|ur_google_maps_api_key|<paste_it_here>|g' .env
+ 
+ #Verify
+ grep -v '^#' .env
+ 
+ ```
+In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
+- Replace <YOUR_GOOGLE_MAPS_KEY> by ur Google maps API key
+ 
 
-## 🚍 Features
-- Live shuttle tracking (GPS updates every 2s).
-- Route maps, stops, and 20-min schedule display.
-- Real-time seat availability (max 4 seats/vehicle).
-- Admin dashboard for monitoring & notifications.
-- Cross-platform: Android, iOS, Web.
 
-## 📂 Repository Structure
+## 4. Cloud Configuration
+ ```bash
+ cd ..
+ 
+ aws configure
+ # Enter your AWS Access Key, Secret, Region (ap-south-1)
+ 
+ 
+ aws ecr create-repository --repository-name <unique_repo_name>   # Note this repo name for Step 6
+ ```
+ - In the file ```./infra/terraform.tfvars``` set a unique_bucket_name
 
-This project is a monorepo containing several distinct services:
 
--   `/admin-portal`: A React + Vite frontend for administrators, deployed to S3 and served by CloudFront.
--   `/backend`: A Node.js + Express API, containerized with Docker and deployed to AWS App Runner.
--   `/transvahan-user`: The React Native (Expo) mobile application for end-users.
--   `/eta-service`: A Python microservice for ETA calculations.
--   `/infra`: Contains all Terraform code for provisioning the AWS infrastructure.
--   `/db`: Holds database schemas and seed scripts.
--   `/.github/workflows`: Defines the Continuous Integration (CI) pipeline using GitHub Actions.
+## 🧱 5. Infrastructure Deployment (Terraform)
+ In ```./infra``` run the below commands
+ ```bash
+ 
+ cd infra
+ terraform init
+ terraform plan
+ terraform apply
+ 
+ 
+ terraform output
+ # Note admin_portal_website_endpoint
+ 
+ ```
+If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``` with a globally unique bucket name and rerun terraform apply.
 
----
 
-## 🚀 Production Deployment Pipeline
+ ## 🐳 6. Build and Push Backend to AWS ECR
+ 
+ ```bash
+ cd ../backend
+ 
+ # 1️⃣ Authenticate Docker with AWS ECR
+ aws ecr get-login-password --region ap-south-1 | \
+   docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com
+ 
+ # 2️⃣ Build the backend Docker image
+ docker build -t transvahan-backend:latest .
+ 
+ # 3️⃣ Tag the image for your ECR repository
+ docker tag transvahan-backend:latest \
+   <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<unique_repo_name>:latest
+ 
+ # 4️⃣ Push the image to ECR
+ docker push <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<unique_repo_name>:latest
+```
 
-This guide details the commands required to deploy the entire production-ready application, from infrastructure provisioning to application deployment.
+## 7. Deploy Backend on AWS App Runner
+ - Go to AWS Console → App Runner
+ - Create service
+ - Choose "Container registry" → "Amazon ECR"
+ - Select your uploaded image (<unique_repo_name>)
+ - Port: 5001
+ - Deployment: Automatic (to redeploy on image push)
+ - Service name: transvahan-backend
+ - Allow public access
 
-### Prerequisites
+ The above step will take time to deploy
+ 
+ - Once deployed, note down the service URL (e.g. https://abcdefghi.ap-south-1.awsapprunner.com)
+ - This is ur <APP_RUNNER_BACKEND_URL> 
+ - And make sure that what ever u have copied looks like this abcdefghi.ap-south-1.awsapprunner.com
 
-Ensure you have the following CLI tools installed and configured:
-1.  **AWS CLI**: Configured with credentials (`aws configure`).
-2.  **Terraform**: For infrastructure provisioning.
-3.  **Docker**: For building the backend container.
-4.  **Node.js (v20)** & **npm**: For building the admin portal and running scripts.
-5.  **Firebase CLI**: For database seeding (`npm install -g firebase-tools`).
-6.  **EAS CLI**: For building the mobile app (`npm install -g eas-cli`).
+ ### Health Check
+ ```bash
+ 
+ curl -i https://<APP_RUNNER_URL>/health
+ 
+ # Should Return {"ok": true}
+```
 
-### Step 1: Provision AWS Infrastructure (Terraform)
+## 🧩 8. Environment Variables Setup -2 (Admin Portal)
 
-This step provisions the ECR repository, App Runner service, S3 bucket, and CloudFront distribution.
+In the ```./admin-portal``` run the following commands
+ ```bash
+ cd admin-portal
 
-1.  Navigate to the infrastructure directory:
-    ```bash
-    cd infra
-    ```
-2.  Create a `terraform.tfvars` file to provide the required variables (e.g., secrets, AWS profile). The required variables are defined in `infra/main.tf` and include `jwt_secret`, `email_user`, `email_pass`, etc..
+ # Replace App Runner backend URL
+ sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
+ 
+ # Replace Google Maps API key
+ sed -i 's|<YOUR_GOOGLE_MAPS_KEY>|<paste_it_here>|g' .env
 
-    **Example `terraform.tfvars`:**
-    ```hcl
-    aws_region        = "us-east-1"
-    aws_profile       = "default"
-    environment       = "production"
-    jwt_secret        = "YOUR_SUPER_SECRET_JWT_KEY"
-    email_user        = "your-email@gmail.com"
-    email_pass        = "your-email-password"
-    firebase_project_id = "your-firebase-project-id"
-    google_maps_api_key = "YOUR_GOOGLE_MAPS_API_KEY"
-    admin_portal_origin = "[https://your-cloudfront-domain.com](https://your-cloudfront-domain.com)"
-    mobile_app_origin = "*" 
-    ```
+ ```
 
-3.  Initialize and apply the Terraform configuration:
-    ```bash
-    terraform init
-    terraform plan
-    terraform apply -auto-approve
-    ```
-    
-    Take note of the Terraform outputs, especially the `admin_portal_url`.
+ ## 🌐 9. Build and Deploy Admin Portal
+ In the ```./admin-portal``` run the following commands
 
-### Step 2: Build & Deploy the Backend (AWS App Runner)
+ ```bash
+ npm install
+ npm run build
+ 
+ # Upload to the Terraform-created bucket
+BUCKET_NAME=$(terraform output -raw admin_portal_bucket_name)
+aws s3 sync dist/ s3://$BUCKET_NAME --delete
+```
+You can now access your admin portal via the website endpoint printed by Terraform.
 
-The App Runner service is configured to automatically redeploy whenever a new image is pushed to the ECR repository with the `latest` tag.
 
-1.  Navigate to the backend directory:
-    ```bash
-    cd backend
-    ```
+## 📱 10. Environment Variables Setup -3 (Mobile App)
+ In `/transvahan-user` directory run the following commands
+ 
+ ```bash
+ 
+ 
+ # Replace the API Base URL (App Runner backend endpoint)
+ sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
+ 
+ # Replace the Google Maps API key
+ sed -i 's|<YOUR_GOOGLE_MAPS_API_KEY>|<paste_it_here>|g' .env
+ 
+ # Verify 
+ grep -v '^#' .env
+ ```
+ Also open `transvahan-user/eas.json` and set:
+```bash
+"env": {
+  "API_BASE_URL": "https://<APP_RUNNER_BACKEND_URL>",
+  "WS_URL": "wss://<APP_RUNNER_BACKEND_URL>/ws",
+  "USE_MOCK": "false",
+  "GOOGLE_MAPS_API_KEY": "<your_maps_key>"
+}
+```
 
-2.  Build the Docker image. The image is based on `node:20-alpine` and copies the production dependencies and source code.
-    ```bash
-    docker build -t stormcrafters-backend .
-    ```
+ ## 11. Build Mobile App (APK)
 
-3.  Log in to the AWS ECR repository. (Replace `<aws_account_id>` and `<region>` with your details).
-    ```bash
-    aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.<region>.amazonaws.com
-    ```
+ - Create an account in `https://expo.dev/` 
+ - The above Credentials will be used in `eas login`
+ ```bash
+ # Ensure EAS CLI is installed
+npm install -g eas-cli
 
-4.  Tag the local image with the ECR repository URI. The repository name is `stormcrafters-backend`.
-    ```bash
-    docker tag stormcrafters-backend:latest <aws_account_id>.dkr.ecr.<region>[.amazonaws.com/stormcrafters-backend:latest](https://.amazonaws.com/stormcrafters-backend:latest)
-    ```
+cd transvahan-user
+eas login
 
-5.  Push the image to ECR. This will automatically trigger the App Runner deployment.
-    ```bash
-    docker push <aws_account_id>.dkr.ecr.<region>[.amazonaws.com/stormcrafters-backend:latest](https://.amazonaws.com/stormcrafters-backend:latest)
-    ```
+# First build attempt
+eas build --platform android --profile production
 
-### Step 3: Build & Deploy the Admin Portal (S3 & CloudFront)
+# If you see "Missing eas.projectId":
+# Open transvahan-user/app.config.ts and add:
+# eas: { projectId: "your-eas-project-id" },
 
-This process builds the static React app and syncs it to the S3 bucket created by Terraform.
+# Then rebuild
+eas build --platform android --profile production
 
-1.  Navigate to the admin portal directory:
-    ```bash
-    cd admin-portal
-    ```
 
-2.  Install dependencies:
-    ```bash
-    npm ci
-    ```
+ ```
 
-3.  Build the production application. This uses Vite to create a static build in the `dist/` directory.
-    ```bash
-    npm run build
-    ```
+ ## 📲 12. Download and Install the APK
 
-4.  Sync the build output to the S3 bucket. The bucket name is `stormcrafters-admin-portal`.
-    ```bash
-    aws s3 sync ./dist s3://stormcrafters-admin-portal --delete
-    ```
+After the build completes, visit the EAS dashboard link printed in your terminal, or list your builds:
+```bash
+eas build:list
+```
 
-5.  (Recommended) Invalidate the CloudFront cache to ensure users see the latest version. Get the `Distribution ID` from the AWS console or Terraform output.
-    ```bash
-    aws cloudfront create-invalidation --distribution-id <YOUR_DISTRIBUTION_ID> --paths "/*"
-    ```
+Download the .apk, install it on your Android device, and enjoy your working TransVahan app 🚖
+ 
 
-### Step 4: Build & Deploy the Mobile App (Expo EAS)
+ ## ✅ Quick Reference
 
-The mobile app is built using Expo Application Services (EAS).
+ ### ✅ Quick Reference
 
-1.  Navigate to the user app directory:
-    ```bash
-    cd transvahan-user
-    ```
-2.  Log in to your Expo account:
-    ```bash
-    eas login
-    ```
-3.  Configure the project for EAS Build (if not already done):
-    ```bash
-    eas build:configure
-    ```
-4.  Run the build for the desired platforms (e.g., Android, iOS, or all):
-    ```bash
-    eas build --platform all
-    ```
-    This will build the app bundles in the cloud, which you can then submit to the respective app stores.
+| Step | Purpose | Command |
+|------|----------|----------|
+| **Terraform Infra** | Provision AWS resources (S3, IAM, etc.) | `cd infra && terraform apply` |
+| **Build Backend** | Build Node.js backend Docker image | `docker build -t transvahan-backend .` |
+| **Push to ECR** | Push image to AWS Elastic Container Registry | `docker push <repo_uri>:latest` |
+| **Deploy App Runner** | Deploy backend container to App Runner | *Use AWS Console* |
+| **Sync Frontend** | Upload built admin portal to S3 | `aws s3 sync dist/ s3://<bucket>` |
+| **Build APK** | Build mobile app using Expo EAS | `eas build --platform android` |
 
-### Step 5: Seed the Database (Firebase)
 
-The root `package.json` contains scripts for seeding the Firestore and Realtime Database.
 
-1.  Navigate to the root directory of the repository:
-    ```bash
-    cd .. 
-    ```
-
-2.  Install the root-level dependencies:
-    ```bash
-    npm install
-    ```
-
-3.  Log in to Firebase:
-    ```bash
-    firebase login
-    ```
-
-4.  Run the seed scripts. Ensure your Firebase service account key is correctly referenced in the scripts.
-    ```bash
-    npm run seed:firestore
-    npm run seed:rtdb
-    ```
-
----
-
-## 💻 Local Development
-
-Use the following commands to run the services locally.
-
-### Backend
-
-1.  Navigate to `/backend`.
-2.  Create a `.env` file with the necessary environment variables (see `infra/main.tf` for the full list).
-3.  Install dependencies: `npm install`
-4.  Run the development server:
-    ```bash
-    npm run dev
-    ```
-    The server will start on port 5001.
-
-### Admin Portal
-
-1.  Navigate to `/admin-portal`.
-2.  Install dependencies: `npm install`
-3.  Run the Vite development server:
-    ```bash
-    npm run dev
-    ```
-
-### Mobile App (Expo)
-
-1.  Navigate to `/transvahan-user`.
-2.  Install dependencies: `npm install`
-3.  Start the Expo development server:
-    ```bash
-    npm start
-    ```
-    This will open the Expo developer tools, allowing you to run the app in a simulator or on your phone using the Expo Go app.
-
-### Firebase Emulators
-
-The project is configured to use Firebase emulators for local development (Auth, Firestore, RTDB).
-
-1.  From the root directory, start the emulators:
-    ```bash
-    firebase emulators:start
-    ```
-    You can access the Emulator UI at `http://localhost:4000`.
-
-## ⚙️ Continuous Integration (CI)
-
-This project uses GitHub Actions for CI, defined in `.github/workflows/ci.yml`.
-
--   **Triggers**: The pipeline runs on `push` and `pull_request` events to the `postmid1` and `dev` branches.
--   **Jobs**: It runs separate jobs to install dependencies, run tests, and perform production builds for all major services (`admin-portal`, `transvahan-user`, `cloud-chat`, `backend`, `eta-service`, `transvahan-eta`).
--   **Note**: This CI pipeline *does not deploy* to production. Deployment is a manual process following the steps outlined above.
-- Driver app for GPS & occupancy management.
-- Admin dashboard for monitoring & notifications.
-- Cross-platform: Android, iOS, Web.
-
----
-
-## 📂 Repo Structure
-- `prd.md` → Product Requirements Document  
-- `arch.md` → System Architecture  
-- `modules.md` → Module-wise breakdown  
-- `src/` → Codebase (User app, Driver app, Admin portal, backend)  
-- `docs/` → Screenshots, diagrams, presentations  
-
----
-
-## ⚙️ Tech Stack
-- **Frontend:** React Native/Flutter (mobile), React (web).
-- **Backend:** AWS Lambda / Google Cloud Functions.
-- **Database:** Firestore / Firebase Realtime Database.
-- **Maps & GPS:** Google Maps API.
-- **Realtime updates:** WebSockets / Firebase.
-- **Auth:** OAuth2 / SSO.
-- **Notifications:** Firebase Cloud Messaging.
-
----
-
-## 🚀 Deployment
-- Hosted on AWS/Azure/GCP (serverless backend).
-- CI/CD with GitHub Actions.
-- Auto-scaling enabled.
-
----
-
-## 📅 Milestones
-- **12 Sep** – Proposal Presentation  
-- **10 Oct** – Midterm Review (67% complete)  
-- **7 Nov** – Final Submission  
 
 ---
 
-## 👥 Team
-- Backend & Cloud – [Name]  
-- Mobile Frontend – [Name]  
-- Driver App – [Name]  
-- Admin Portal – [Name]  
-- QA & Testing – [Name]  
-- Project Lead – [Name]  
+**Author:** Team StormCrafters  
+**Region:** `ap-south-1`  
+**Stack:** Node.js • React • React Native • Firebase • AWS • Terraform  
+**Version:** 1.0.0
+
+---
+ 
+ 
+ 
