@@ -1,3 +1,4 @@
+// admin-portal/src/routes/RoutesEditor.tsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import RouteMapEditor from "../components/RouteMapEditor";
 import VehicleLayer from "../components/VehicleLayer";
@@ -128,17 +129,14 @@ export default function RoutesEditor() {
   const [liveVehicles, setLiveVehicles] = useState<any[]>([]);
   const [demandPoints, setDemandPoints] = useState<any[]>([]);
 
-  // assignment status for current route + direction
   const [assignStatus, setAssignStatus] = useState<AssignmentStatus | null>(
     null
   );
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
 
-  // drag & drop state for stop list
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
-  // Stable callbacks for child layers (prevents useEffect loops)
   const handleVehicleData = useCallback((rows: any[]) => {
     setLiveVehicles(rows);
   }, []);
@@ -147,7 +145,6 @@ export default function RoutesEditor() {
     setDemandPoints(points);
   }, []);
 
-  // ---------------------- load list and overlays ----------------------
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -186,7 +183,6 @@ export default function RoutesEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---------------------- load selected route ----------------------
   useEffect(() => {
     if (!selectedId) return;
     (async () => {
@@ -200,7 +196,6 @@ export default function RoutesEditor() {
     })();
   }, [selectedId]);
 
-  // ---------------------- load assignment status for selected route+dir ----------------------
   useEffect(() => {
     if (!selectedId) {
       setAssignStatus(null);
@@ -255,10 +250,7 @@ export default function RoutesEditor() {
             typeof veh?.occupancy === "number" ? veh.occupancy : undefined,
           capacity:
             typeof veh?.capacity === "number" ? veh.capacity : undefined,
-          lat:
-            veh?.location?.lat ??
-            veh?.location?.latitude ??
-            undefined,
+          lat: veh?.location?.lat ?? veh?.location?.latitude ?? undefined,
           lon:
             veh?.location?.lon ??
             veh?.location?.lng ??
@@ -295,7 +287,6 @@ export default function RoutesEditor() {
     [model, dir]
   );
 
-  // ---------------------- line management ----------------------
   const addNewLine = async () => {
     const name = prompt("Enter new line name:", "New Line");
     if (!name) return;
@@ -308,7 +299,6 @@ export default function RoutesEditor() {
     setRoutes((r) => [...r, row]);
     setSelectedId(created.id);
 
-    // ensure model has the Firestore id
     setModel({
       id: created.id,
       route_name: trimmed,
@@ -342,20 +332,40 @@ export default function RoutesEditor() {
 
   const renameLine = async () => {
     const name = prompt("Rename line:", model.route_name);
-    if (!name || !name.trim()) return;
+    if (name == null) return;
     const trimmed = name.trim();
+    if (!trimmed) return;
+
+    const routeId = model.id || selectedId;
+    const prevName = model.route_name;
+
     setModel((m) => ({ ...m, route_name: trimmed }));
     setRoutes((rs) =>
-      rs.map((r) => (r.id === model.id ? { ...r, route_name: trimmed } : r))
+      rs.map((r) => (r.id === routeId ? { ...r, route_name: trimmed } : r))
     );
     setOverlays((os) =>
-      os.map((o) => (o.id === model.id ? { ...o, name: trimmed } : o))
+      os.map((o) => (o.id === routeId ? { ...o, name: trimmed } : o))
     );
+
+    if (!routeId) return;
+
+    try {
+      await updateRoute(routeId, { route_name: trimmed });
+    } catch (err: any) {
+      console.error("Rename route failed:", err);
+      alert(err?.response?.data?.error || "Failed to rename line");
+
+      setModel((m) => ({ ...m, route_name: prevName }));
+      setRoutes((rs) =>
+        rs.map((r) => (r.id === routeId ? { ...r, route_name: prevName } : r))
+      );
+      setOverlays((os) =>
+        os.map((o) => (o.id === routeId ? { ...o, name: prevName } : o))
+      );
+    }
   };
 
-  // ---------------------- stop operations ----------------------
   const onAddStopAt = (lat: number, lon: number) => {
-    // 🔴 HARD confirm: if user says "No", we do *nothing*
     const ok = window.confirm("Add a stop ?");
     if (!ok) {
       console.log("[RoutesEditor] User cancelled Add Stop");
@@ -366,7 +376,6 @@ export default function RoutesEditor() {
       "Stop name:",
       `Stop ${currentStops.length + 1}`
     );
-    // If user cancels the prompt, also do NOTHING
     if (rawName == null) {
       console.log("[RoutesEditor] User cancelled stop naming");
       return;
@@ -378,7 +387,6 @@ export default function RoutesEditor() {
       return;
     }
 
-    // If somehow we don't have an id yet, keep local until first save
     if (!model.id) {
       const stop: Stop = {
         stop_id: crypto.randomUUID(),
@@ -438,16 +446,23 @@ export default function RoutesEditor() {
   };
 
   const onMarkerMove = (_stop_id: string, _lat: number, _lon: number) => {
-    // Kept for compatibility; not used (stops are non-draggable)
+    // compatibility; stops are non-draggable
   };
 
+  // ✅ FIXED: rename stop now persists to backend + rolls back on failure
   const onRenameStop = (stop_id: string) => {
     const s = currentStops.find((x) => x.stop_id === stop_id);
     if (!s) return;
+
     const name = prompt("Edit stop name:", s.stop_name);
     if (name == null) return;
+
     const trimmed = name.trim();
     if (!trimmed) return;
+
+    const prevName = s.stop_name;
+
+    // optimistic UI update
     setModel((m) => ({
       ...m,
       directions: {
@@ -457,9 +472,34 @@ export default function RoutesEditor() {
         ),
       },
     }));
+
+    // if no backend id yet, local-only is fine
+    if (!model.id) return;
+
+    (async () => {
+      try {
+        await apiUpdateStop(model.id, stop_id, {
+          direction: dir,
+          stop_name: trimmed,
+        });
+      } catch (err: any) {
+        console.error("Rename stop error:", err);
+        alert(err?.response?.data?.error || "Failed to rename stop on server");
+
+        // rollback UI
+        setModel((m) => ({
+          ...m,
+          directions: {
+            ...m.directions,
+            [dir]: (m.directions[dir] || []).map((x) =>
+              x.stop_id === stop_id ? { ...x, stop_name: prevName } : x
+            ),
+          },
+        }));
+      }
+    })();
   };
 
-  // delete stop: backend first, then local state
   const onDeleteStop = (stop_id: string) => {
     (async () => {
       if (!model?.id) return;
@@ -473,9 +513,7 @@ export default function RoutesEditor() {
         await apiDeleteStop(model.id, stop_id, dir);
       } catch (err: any) {
         console.error("Delete stop error:", err);
-        alert(
-          err?.response?.data?.error || "Failed to delete stop on server"
-        );
+        alert(err?.response?.data?.error || "Failed to delete stop on server");
         return;
       }
 
@@ -530,7 +568,6 @@ export default function RoutesEditor() {
     moveStopToIndex(stop_id, targetIndex);
   };
 
-  // ---------------------- save to backend ----------------------
   const save = async () => {
     if (!model.route_name?.trim()) {
       alert("Route name is required.");
@@ -599,7 +636,6 @@ export default function RoutesEditor() {
     }
   };
 
-  // ---------------------- derived view data ----------------------
   const primaryColor = colorFor(model.id || model.route_name);
   const filteredRoutes = routes.filter((r) =>
     (r.route_name + " " + r.id).toLowerCase().includes(filter.toLowerCase())
@@ -622,7 +658,6 @@ export default function RoutesEditor() {
 
   const froReadonly = dir === "fro" && autoReverse;
 
-  // ---------------------- render ----------------------
   return (
     <div className="route-editor">
       <div className="re-header">
@@ -696,7 +731,6 @@ export default function RoutesEditor() {
           </div>
         </div>
 
-        {/* assignment summary banner */}
         <div
           className="assignment-banner"
           style={{
@@ -730,9 +764,7 @@ export default function RoutesEditor() {
                 : ""}
               {"  | "}
               Status:{" "}
-              <b>
-                {(assignStatus.status || "unknown").toUpperCase()}
-              </b>
+              <b>{(assignStatus.status || "unknown").toUpperCase()}</b>
               {typeof assignStatus.occupancy === "number" &&
                 typeof assignStatus.capacity === "number" && (
                   <>
@@ -761,7 +793,6 @@ export default function RoutesEditor() {
 
       <div className="re-body">
         <div className="map-col">
-          {/* Live vehicles for selected line+direction */}
           <VehicleLayer
             routeId={selectedId}
             direction={dir}
@@ -769,7 +800,6 @@ export default function RoutesEditor() {
             onData={handleVehicleData}
           />
 
-          {/* High-demand points for selected line+direction */}
           <DemandLayer
             routeId={selectedId}
             direction={dir}

@@ -18,7 +18,23 @@ body{
   -moz-osx-font-smoothing:grayscale;
 }
 
+/* ✅ Default shell */
 .app-shell{display:flex;min-height:100vh}
+
+/* ✅ When NOT authed, don't use flex layout.
+   This prevents login page from being a tiny left flex child. */
+.app-shell.unauth{
+  display:block;
+  width:100%;
+  min-height:100vh;
+}
+
+/* ✅ Wrapper for unauth routes so they fill viewport */
+.unauth-area{
+  width:100%;
+  min-height:100vh;
+  display:block;
+}
 
 /* Sidebar */
 .sidebar{
@@ -80,7 +96,14 @@ body{
 input[type="text"],input[type="email"],input[type="password"]{font-size:14px}
 
 /* Login page / card */
-.login-page{display:flex;align-items:center;justify-content:center;height:100vh;background:linear-gradient(180deg,#eef2ff 0%, #f8fafc 100%)}
+.login-page{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:100vh; /* ✅ more robust than height */
+  width:100%;       /* ✅ ensure it fills viewport */
+  background:linear-gradient(180deg,#eef2ff 0%, #f8fafc 100%);
+}
 .card.login{width:360px;max-width:92%;padding:24px;text-align:left}
 .card.login h2{margin-top:0}
 .card.login label{display:block;margin-top:12px;font-size:13px;color:var(--muted)}

@@ -623,7 +623,6 @@ export default function routeRoutes(db) {
   // ----------------------------------------------------------------------------
   // ADMIN: Reset all waiting reservations for route+direction
   // POST /routes/:id/reservations/reset
-  // (intended to be called when a vehicle goes running → idle)
   // ----------------------------------------------------------------------------
   router.post(
     "/:id/reservations/reset",
@@ -657,8 +656,7 @@ export default function routeRoutes(db) {
   );
 
   // ---------------------------------------------------------------------------
-  // PUBLIC – road-following route shape using Google Directions
-  //          GET /routes/:id/shape?direction=to|fro&force=1
+  // PUBLIC – route shape
   // ---------------------------------------------------------------------------
   router.get("/:id/shape", async (req, res) => {
     try {
@@ -811,13 +809,25 @@ export default function routeRoutes(db) {
     }
   });
 
+  // ✅ FIXED: rename now always persists if provided, and blanks are rejected
   router.put("/:id", authenticate, requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
       const { route_name, directions } = req.body || {};
       const payload = {};
-      if (route_name) payload["route_name"] = String(route_name).trim();
-      if (directions) payload["directions"] = normalizeDirections(directions);
+
+      if (route_name !== undefined) {
+        const trimmed = String(route_name).trim();
+        if (!trimmed) {
+          return res.status(400).json({ error: "route_name cannot be empty" });
+        }
+        payload["route_name"] = trimmed;
+      }
+
+      if (directions !== undefined) {
+        payload["directions"] = normalizeDirections(directions);
+      }
+
       await db.collection("routes").doc(id).set(payload, { merge: true });
       res.json({ ok: true });
     } catch (err) {

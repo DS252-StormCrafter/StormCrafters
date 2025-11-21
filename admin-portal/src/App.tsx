@@ -1,4 +1,3 @@
-//admin-portal/src/App.tsx
 import React from "react";
 import {
   BrowserRouter as Router,
@@ -23,7 +22,8 @@ export default function App() {
 
   return (
     <Router>
-      <div className="app-shell">
+      {/* ✅ Add authed/unauth class so CSS can switch layout safely */}
+      <div className={`app-shell ${isAuthed ? "authed" : "unauth"}`}>
         {isAuthed ? (
           <>
             <Sidebar />
@@ -31,28 +31,30 @@ export default function App() {
               <Topbar />
               <div className="content">
                 <Routes>
-                  {/* ✅ Reports is now the default landing page */}
-                  <Route path="/" element={<Navigate to="/reports" replace />} />
-                  <Route path="/reports" element={<Reports />} />
+                  {/* ✅ Default landing after login */}
+                  <Route path="/" element={<Navigate to="/drivers" replace />} />
 
-                  {/* ✅ Other pages remain intact */}
                   <Route path="/drivers" element={<Drivers />} />
                   <Route path="/vehicles" element={<Vehicles />} />
                   <Route path="/routes" element={<RoutesEditor />} />
                   <Route path="/assignments" element={<Assignments />} />
+                  <Route path="/reports" element={<Reports />} />
                   <Route path="/notifications" element={<Notifications />} />
 
-                  {/* Fallback to reports */}
-                  <Route path="*" element={<Navigate to="/reports" replace />} />
+                  {/* Fallback to /drivers */}
+                  <Route path="*" element={<Navigate to="/drivers" replace />} />
                 </Routes>
               </div>
             </div>
           </>
         ) : (
-          <Routes>
-            <Route path="/login" element={<AdminLogin />} />
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
+          // ✅ Unauthed area now fills screen, allowing centered login
+          <div className="unauth-area">
+            <Routes>
+              <Route path="/login" element={<AdminLogin />} />
+              <Route path="*" element={<Navigate to="/login" replace />} />
+            </Routes>
+          </div>
         )}
       </div>
     </Router>

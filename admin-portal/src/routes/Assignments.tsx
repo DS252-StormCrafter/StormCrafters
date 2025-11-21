@@ -1,3 +1,4 @@
+// admin-portal/src/routes/Assignments.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   fetchAssignments,
@@ -29,8 +30,13 @@ export default function Assignments() {
   const [newDriverId, setNewDriverId] = useState<string>("");
   const [newVehicleId, setNewVehicleId] = useState<string>("");
 
+  // ✅ new: hide inactive by default (since backend soft-deletes)
+  const [showInactive, setShowInactive] = useState<boolean>(false);
+
   // ---------------------- initial load ----------------------
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       setLoading(true);
       setError(null);
@@ -43,27 +49,34 @@ export default function Assignments() {
             fetchVehicles(),
           ]);
 
-        const routeOpts: Option[] = (Array.isArray(routeList) ? routeList : []).map(
-          (r: any) => ({
-            id: String(r.id || r.route_id),
-            label: r.route_name || r.line || r.route_id || String(r.id),
-          })
-        );
+        if (cancelled) return;
 
-        const driverOpts: Option[] = (Array.isArray(driverList) ? driverList : []).map(
-          (d: any) => ({
-            id: String(d.id),
-            label: d.name || d.email || d.id,
-          })
-        );
-
-        const vehicleOpts: Option[] = (Array.isArray(vehicleList)
-          ? vehicleList
-          : []
-        ).map((v: any) => ({
-          id: String(v.id || v.vehicle_id || v.plateNo),
-          label: v.plateNo || v.vehicle_id || v.id,
+        const routeOpts: Option[] = (
+          Array.isArray(routeList) ? routeList : []
+        ).map((r: any) => ({
+          id: String(r.id || r.route_id),
+          label: r.route_name || r.line || r.route_id || String(r.id),
         }));
+
+        const driverOpts: Option[] = (
+          Array.isArray(driverList) ? driverList : []
+        ).map((d: any) => ({
+          id: String(d.id),
+          label: d.name || d.email || d.id,
+        }));
+
+        const vehicleOpts: Option[] = (
+          Array.isArray(vehicleList) ? vehicleList : []
+        )
+          .map((v: any) => {
+            const id = v.id ? String(v.id) : null;
+            if (!id) return null;
+            return {
+              id,
+              label: v.plateNo || v.vehicle_id || id,
+            };
+          })
+          .filter(Boolean) as Option[];
 
         setAssignments(assignList || []);
         setRoutes(routeOpts);
@@ -75,6 +88,7 @@ export default function Assignments() {
         if (vehicleOpts.length && !newVehicleId)
           setNewVehicleId(vehicleOpts[0].id);
       } catch (err: any) {
+        if (cancelled) return;
         console.error("Assignments load error", err);
         setError(
           err?.response?.data?.error ||
@@ -82,20 +96,48 @@ export default function Assignments() {
             "Failed to load assignments"
         );
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---------------------- realtime polling (kept) ----------------------
+  useEffect(() => {
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const fresh = await fetchAssignments({ includeInactive: true });
+        if (!cancelled) setAssignments(Array.isArray(fresh) ? fresh : []);
+      } catch {
+        // silent; manual refresh + error banner already exist
+      }
+    };
+
+    const t0 = window.setTimeout(poll, 1200);
+    const t = window.setInterval(poll, 5000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t0);
+      clearInterval(t);
+    };
   }, []);
 
   // ---------------------- derived views ----------------------
   const filteredAssignments = useMemo(() => {
     return assignments.filter((a) => {
+      if (!showInactive && a.active === false) return false;
       if (filterRoute && a.route_id !== filterRoute) return false;
       if (filterDriver && a.driver_id !== filterDriver) return false;
       return true;
     });
-  }, [assignments, filterRoute, filterDriver]);
+  }, [assignments, filterRoute, filterDriver, showInactive]);
 
   const routeLabel = (id?: string) =>
     routes.find((r) => r.id === id)?.label || id || "—";
@@ -167,6 +209,7 @@ export default function Assignments() {
     }
   };
 
+  // ✅ FIXED: backend soft-deletes → mark inactive locally
   const handleDelete = async (a: Assignment) => {
     if (
       !window.confirm(
@@ -180,7 +223,12 @@ export default function Assignments() {
     setError(null);
     try {
       await deleteAssignment(a.id);
-      setAssignments((prev) => prev.filter((row) => row.id !== a.id));
+
+      setAssignments((prev) =>
+        prev.map((row) =>
+          row.id === a.id ? { ...row, active: false } : row
+        )
+      );
     } catch (err: any) {
       console.error("Delete assignment error", err);
       setError(
@@ -259,6 +307,16 @@ export default function Assignments() {
             }}
           >
             Refresh
+          </button>
+
+          {/* ✅ new toggle, default off */}
+          <button
+            className="btn secondary"
+            type="button"
+            onClick={() => setShowInactive((v) => !v)}
+            style={{ marginLeft: 4 }}
+          >
+            {showInactive ? "Hide inactive" : "Show inactive"}
           </button>
 
           {loading && <span className="kv">Loading…</span>}
@@ -372,7 +430,7 @@ export default function Assignments() {
               </tr>
             ) : (
               filteredAssignments.map((a) => (
-                <tr key={a.id}>
+                <tr key={a.id} style={a.active === false ? { opacity: 0.6 } : {}}>
                   <td>{routeLabel(a.route_id)}</td>
                   <td>{(a.direction || "to").toUpperCase()}</td>
                   <td>{vehicleLabel(a.vehicle_id)}</td>
@@ -384,13 +442,7 @@ export default function Assignments() {
                       : "—"}
                   </td>
                   <td>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 6,
-                        alignItems: "center",
-                      }}
-                    >
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <button
                         className="btn xs"
                         type="button"

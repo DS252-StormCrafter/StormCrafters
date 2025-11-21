@@ -1,5 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { fetchVehicles, updateVehicleCapacity } from "../services/admin";
+import {
+  fetchVehicles,
+  updateVehicleCapacity,
+  createVehicle,
+  deleteVehicle,
+} from "../services/admin";
 
 type Vehicle = {
   id: string;
@@ -17,6 +22,10 @@ export default function Vehicles() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ [id: string]: number }>({});
   const [saving, setSaving] = useState<string | null>(null);
+
+  // ✅ create form state
+  const [newPlate, setNewPlate] = useState("");
+  const [newCapacity, setNewCapacity] = useState<number>(12);
 
   const loadVehicles = async () => {
     try {
@@ -53,7 +62,6 @@ export default function Vehicles() {
     try {
       setSaving(id);
       await updateVehicleCapacity(id, newCap);
-      alert("Capacity updated successfully!");
       await loadVehicles();
     } catch (err: any) {
       console.error("Update capacity error:", err);
@@ -63,9 +71,79 @@ export default function Vehicles() {
     }
   };
 
+  const handleCreateVehicle = async () => {
+    if (!newPlate.trim()) {
+      alert("Enter a vehicle plate / id");
+      return;
+    }
+    if (!newCapacity || newCapacity < 1) {
+      alert("Capacity must be >= 1");
+      return;
+    }
+
+    try {
+      setSaving("create");
+      await createVehicle({
+        plateNo: newPlate.trim(),
+        vehicle_id: newPlate.trim(),
+        capacity: newCapacity,
+        status: "idle",
+      });
+      setNewPlate("");
+      setNewCapacity(12);
+      await loadVehicles();
+    } catch (err: any) {
+      console.error("Create vehicle error:", err);
+      alert(err?.response?.data?.error || "Failed to create vehicle");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleDeleteVehicle = async (v: Vehicle) => {
+    if (!window.confirm(`Delete vehicle ${v.vehicle_id || v.plateNo || v.id}?`))
+      return;
+
+    try {
+      setSaving(v.id);
+      await deleteVehicle(v.id);
+      setVehicles((prev) => prev.filter((x) => x.id !== v.id));
+    } catch (err: any) {
+      console.error("Delete vehicle error:", err);
+      alert(err?.response?.data?.error || "Failed to delete vehicle");
+    } finally {
+      setSaving(null);
+    }
+  };
+
   return (
     <div>
       <h2>Vehicles</h2>
+
+      {/* ✅ Create Vehicle */}
+      <div className="card form-row" style={{ marginBottom: 12 }}>
+        <input
+          placeholder="Vehicle Plate / ID"
+          value={newPlate}
+          onChange={(e) => setNewPlate(e.target.value)}
+        />
+        <input
+          type="number"
+          min={1}
+          placeholder="Capacity"
+          value={newCapacity}
+          onChange={(e) => setNewCapacity(parseInt(e.target.value, 10) || 0)}
+          style={{ width: 120 }}
+        />
+        <button
+          className="btn primary"
+          onClick={handleCreateVehicle}
+          disabled={saving === "create"}
+        >
+          {saving === "create" ? "Adding…" : "+ Add Vehicle"}
+        </button>
+      </div>
+
       <div className="card">
         {error && <p style={{ color: "#ef4444" }}>Error: {error}</p>}
         {loading ? (
@@ -112,13 +190,20 @@ export default function Vehicles() {
                     />
                   </td>
                   <td>{v.demand_high ? "✅" : "—"}</td>
-                  <td>
+                  <td style={{ display: "flex", gap: 6 }}>
                     <button
                       className="btn xs primary"
                       disabled={saving === v.id}
                       onClick={() => handleSaveCapacity(v.id)}
                     >
                       {saving === v.id ? "Saving…" : "💾 Save"}
+                    </button>
+                    <button
+                      className="btn xs danger"
+                      disabled={saving === v.id}
+                      onClick={() => handleDeleteVehicle(v)}
+                    >
+                      Delete
                     </button>
                   </td>
                 </tr>

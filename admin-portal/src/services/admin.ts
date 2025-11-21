@@ -123,6 +123,41 @@ export const updateVehicleCapacity = async (
 ): Promise<void> => {
   await api.patch(`/vehicle/${id}/capacity`, { capacity });
 };
+// ==========================================================
+// 🚍 VEHICLES (CRUD)
+// ==========================================================
+
+export const createVehicle = async (payload: {
+  vehicle_id?: string;   // plate number / id
+  plateNo?: string;
+  capacity: number;
+  status?: string;
+  currentRoute?: string | null;
+  direction?: "to" | "fro";
+}) => {
+  const res = await api.post("/vehicle", payload);
+  return res.data;
+};
+
+export const updateVehicle = async (
+  id: string,
+  payload: Partial<{
+    vehicle_id: string;
+    plateNo: string;
+    capacity: number;
+    status: string;
+    currentRoute: string | null;
+    direction: "to" | "fro";
+  }>
+) => {
+  const res = await api.put(`/vehicle/${id}`, payload);
+  return res.data;
+};
+
+export const deleteVehicle = async (id: string) => {
+  await api.delete(`/vehicle/${id}`);
+};
+
 
 // ==========================================================
 // 📊 ADMIN ANALYTICS (existing, used by Dashboard)
