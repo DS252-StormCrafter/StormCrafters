@@ -32,6 +32,8 @@ import { runReservationReaper } from "./services/reservationReaper.js";
 import reportsRoutes from "./routes/reports.js";
 import { runTripSynthesizer } from "./services/tripSynthesizer.js";
 import etaRoutes from "./routes/eta.js"; // ⬅️ NEW
+import driverAssignmentRoutes from "./routes/driverAssignment.js";
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -515,7 +517,7 @@ app.use("/alerts", alertsRoutes(db, wss));
 app.use("/stops", stopsRoutes());
 app.use("/planner", plannerRoutes());
 app.use("/live", liveRoutes(db, wss));
-
+app.use("/driver", driverAssignmentRoutes(db));
 app.get("/health", async (_req, res) => {
   try {
     await db.collection("users").limit(1).get();

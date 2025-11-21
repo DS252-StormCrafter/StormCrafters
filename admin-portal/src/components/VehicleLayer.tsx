@@ -1,4 +1,3 @@
-// admin-portal/src/components/VehicleLayer.tsx
 import React, { useEffect, useRef } from "react";
 import { connectLiveVehicles, LiveVehicle } from "../services/live";
 
@@ -33,35 +32,47 @@ function normalizeVehicles(
 ): VehiclePoint[] {
   const { routeId, direction, assignedVehicleId } = opts;
   const routeIdStr = routeId ? String(routeId) : null;
+  const assignedIdStr = assignedVehicleId ? String(assignedVehicleId) : null;
 
   return items
     .map((v) => {
-      const lat = Number(v.lat);
-      const lon = Number(v.lon);
+      const lat = Number((v as any).lat ?? (v as any).location?.lat);
+      const lon = Number((v as any).lon ?? (v as any).lng ?? (v as any).location?.lng);
 
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
 
-      const vRoute = v.line_id ?? null;
+      const idStr = String((v as any).id || (v as any).vehicle_id || "");
 
-      // Optional: only keep current route if specified
+      // ✅ HARD FILTER: if assignment exists, ONLY show that vehicle
+      if (assignedIdStr && idStr !== assignedIdStr) return null;
+
+      const vRoute =
+        (v as any).line_id ??
+        (v as any).route_id ??
+        (v as any).currentRoute ??
+        null;
+
+      // ✅ keep only this route if provided
       if (routeIdStr && vRoute && String(vRoute) !== routeIdStr) return null;
 
       return {
-        id: String(v.id),
-        vehicle_id: v.id,
-        vehicle_plate: v.id,
+        id: idStr,
+        vehicle_id: idStr,
+        vehicle_plate:
+          (v as any).vehicle_plate ||
+          (v as any).plateNo ||
+          (v as any).vehicle_id ||
+          idStr,
         route_id: vRoute,
         direction: (v as any).direction ?? direction,
         lat,
         lon,
-        occupancy: v.occupancy,
-        capacity: v.capacity,
+        occupancy: (v as any).occupancy,
+        capacity: (v as any).capacity,
         status: (v as any).status,
-        driver_name: v.driver_name,
+        driver_name: (v as any).driver_name,
         demand_high: (v as any).demand_high ?? false,
-        last_updated: v.last_updated,
-        // You can add derived flags like:
-        // isAssigned: assignedVehicleId && String(v.id) === String(assignedVehicleId),
+        last_updated: (v as any).last_updated,
       } as VehiclePoint;
     })
     .filter(Boolean) as VehiclePoint[];
@@ -70,7 +81,7 @@ function normalizeVehicles(
 /**
  * VehicleLayer
  * - Keeps a single WebSocket subscription per (routeId, direction).
- * - Pushes normalized data to parent via a *stable* callback (useRef).
+ * - Pushes normalized data to parent via a stable callback.
  */
 export default function VehicleLayer({
   routeId,
@@ -80,13 +91,11 @@ export default function VehicleLayer({
 }: Props) {
   const onDataRef = useRef(onData);
 
-  // keep latest onData without re-running the WS effect
   useEffect(() => {
     onDataRef.current = onData;
   }, [onData]);
 
   useEffect(() => {
-    // If no route selected, clear vehicles and don't connect
     if (!routeId) {
       onDataRef.current?.([]);
       return;
@@ -95,42 +104,27 @@ export default function VehicleLayer({
     let cleanupWs: (() => void) | null = null;
     let closed = false;
 
-    const start = () => {
-      cleanupWs = connectLiveVehicles({
-        lineId: routeId,
-        onUpdate: (vehicles) => {
-          if (closed) return;
+    cleanupWs = connectLiveVehicles({
+      lineId: routeId,
+      onUpdate: (vehicles) => {
+        if (closed) return;
 
-          const rows = normalizeVehicles(vehicles, {
-            routeId,
-            direction,
-            assignedVehicleId,
-          });
+        const rows = normalizeVehicles(vehicles, {
+          routeId,
+          direction,
+          assignedVehicleId,
+        });
 
-          onDataRef.current?.(rows);
-        },
-        onStatusChange: (connected) => {
-          if (!connected) {
-            // Optional: could trigger HTTP fallback here.
-            // For now we just log once.
-            // console.debug("[VehicleLayer] live WS disconnected");
-          }
-        },
-      });
-    };
-
-    start();
+        onDataRef.current?.(rows);
+      },
+      onStatusChange: () => {},
+    });
 
     return () => {
       closed = true;
-      if (cleanupWs) {
-        try {
-          cleanupWs();
-        } catch {
-          // ignore
-        }
-      }
-      // do NOT call onData here, let the next route/dir effect decide
+      try {
+        cleanupWs?.();
+      } catch {}
     };
   }, [routeId, direction, assignedVehicleId]);
 

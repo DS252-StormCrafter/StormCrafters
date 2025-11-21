@@ -1,3 +1,4 @@
+// backend/src/routes/auth.js
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
@@ -414,23 +415,48 @@ export default function authRoutes(db) {
       const driverDoc = snap.docs[0];
       const driverData = driverDoc.data();
 
-      // driver.password MUST be bcrypt hash
       const match = await bcrypt.compare(password, driverData.password);
       if (!match)
         return res.status(403).json({ error: "Invalid credentials" });
 
+      // Issue token
       const token = jwt.sign(
         { id: driverDoc.id, email: driverData.email, role: "driver" },
-        getJwtSecret(), // ✅ hardened secret
+        getJwtSecret(),
         { expiresIn: "7d" }
       );
 
+      // 🔥 NEW: Fetch active assignment
+      const assignSnap = await db
+        .collection("assignments")
+        .where("driver_id", "==", driverDoc.id)
+        .where("active", "==", true)
+        .limit(1)
+        .get();
+
+      let assignment = null;
+      if (!assignSnap.empty) {
+        const adoc = assignSnap.docs[0];
+        const a = adoc.data();
+        assignment = {
+          id: adoc.id,
+          route_id: a.route_id,
+          route_name: a.route_name,
+          direction: a.direction,
+          vehicle_id: a.vehicle_id,
+          vehicle_plate: a.vehicle_plate,
+        };
+      }
+
+      // Send response
       return res.json({
         token,
         user: {
+          id: driverDoc.id,
           email: driverData.email,
           role: "driver",
           name: driverData.name,
+          assignment, // ⭐ INCLUDED
         },
       });
     } catch (err) {
@@ -438,6 +464,5 @@ export default function authRoutes(db) {
       return res.status(500).json({ error: "Internal server error" });
     }
   });
-
   return router;
 }

@@ -1,5 +1,4 @@
-// transvahan-user/src/screens/DriverDashboardTab.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -19,7 +18,7 @@ const ASPECT_RATIO =
   Dimensions.get("window").width / Dimensions.get("window").height;
 
 export default function DriverDashboardTab() {
-  const { token, user } = useAuth();
+  const { user } = useAuth();
 
   const [location, setLocation] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -31,15 +30,49 @@ export default function DriverDashboardTab() {
   const [occupancy, setOccupancy] = useState<number>(0);
   const [capacity, setCapacity] = useState<number>(4);
   const [tripActive, setTripActive] = useState<boolean>(false);
+  const [tripBusy, setTripBusy] = useState<boolean>(false);
   const [demandHigh, setDemandHigh] = useState<boolean>(false);
 
-  // Upcoming reservations data for this route+direction
   const [routeStops, setRouteStops] = useState<any[]>([]);
   const [reservationSummary, setReservationSummary] = useState<any[]>([]);
   const [loadingReservations, setLoadingReservations] = useState(false);
 
   const gpsWatchRef = useRef<null | Location.LocationSubscription>(null);
   const wsCleanupRef = useRef<null | (() => void)>(null);
+  const manualLockRef = useRef<number>(0);
+  const lastServerStatusRef = useRef<string | null>(null);
+  const serverStatusStreakRef = useRef<number>(0);
+
+  // ------------------------ helper: send 1-shot telemetry quickly ------------------------
+  const sendTelemetryBurst = useCallback(
+    async (lat?: number, lng?: number, statusOverride?: "active" | "idle") => {
+      if (!vehicleId) return;
+      const latNum =
+        Number.isFinite(Number(lat)) && lat != null
+          ? Number(lat)
+          : location?.coords?.latitude;
+      const lngNum =
+        Number.isFinite(Number(lng)) && lng != null
+          ? Number(lng)
+          : location?.coords?.longitude;
+
+      if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return;
+
+      try {
+        await apiClient.sendTelemetry?.({
+          vehicleId,
+          lat: latNum,
+          lng: lngNum,
+          status: statusOverride || (tripActive ? "active" : "idle"),
+          route_id: routeId || undefined,
+          direction,
+        });
+      } catch (err: any) {
+        console.warn("❌ Telemetry burst failed:", err?.message || err);
+      }
+    },
+    [vehicleId, routeId, direction, tripActive, location]
+  );
 
   // ------------------------ 1) Load driver assignment + vehicle ------------------------
   useEffect(() => {
@@ -75,6 +108,7 @@ export default function DriverDashboardTab() {
           setOccupancy(found.occupancy ?? 0);
           setCapacity(found.capacity ?? 4);
           setDemandHigh(!!found.demand_high);
+          setTripActive(found.status === "active");
         }
       } catch (err) {
         console.warn(
@@ -149,22 +183,46 @@ export default function DriverDashboardTab() {
     };
   }, [routeId, direction]);
 
-  // ------------------------ 2) WS: live vehicle updates (occupancy, demand_high, etc.) ------------------------
+  // ------------------------ 2) WS: live vehicle updates ------------------------
   useEffect(() => {
     if (!vehicleId) return;
 
     (async () => {
       wsCleanupRef.current = await apiClient.subscribeVehicles(
         async (msg: any) => {
-          if (msg.type === "vehicle" && msg.data) {
-            const v = msg.data;
+          const v = msg?.data;
+          if (!v) return;
+
+          if (msg.type === "vehicle" || msg.type === "vehicle_update") {
             const id = v.id || v.vehicle_id;
             if (String(id) === String(vehicleId)) {
               if (typeof v.occupancy === "number") setOccupancy(v.occupancy);
               if (typeof v.capacity === "number") setCapacity(v.capacity);
+              if (typeof v.status === "string") {
+                const s = v.status.toLowerCase();
+                const now = Date.now();
+              
+                // track stability
+                if (lastServerStatusRef.current === s) {
+                  serverStatusStreakRef.current += 1;
+                } else {
+                  lastServerStatusRef.current = s;
+                  serverStatusStreakRef.current = 1;
+                }
+              
+                const stableEnough = serverStatusStreakRef.current >= 2;
+                const manualLockExpired = now > manualLockRef.current;
+              
+                // ✅ only trust server when stable AND not right after manual click
+                if (stableEnough && manualLockExpired) {
+                  if (s === "active") setTripActive(true);
+                  if (s === "idle" || s === "stopped" || s === "stop") setTripActive(false);
+                }
+              }
               setDemandHigh(!!v.demand_high);
             }
           }
+
           if (msg.type === "demand_update") {
             const d = msg.data;
             if (d?.vehicle_id && String(d.vehicle_id) === String(vehicleId)) {
@@ -251,20 +309,75 @@ export default function DriverDashboardTab() {
     }
   };
 
-  // ------------------------ 5) Trip control ------------------------
+  /* ------------------------ 5) Trip control (FAST + optimistic) ------------------------ */
   const toggleTrip = async () => {
-    if (!vehicleId) return;
+    if (!vehicleId || tripBusy) return;
+
+    const nextActive = !tripActive;
+    const action = nextActive ? "start" : "stop";
+
+    // ✅ instant UI response
+    setTripActive(nextActive);
+    setTripBusy(true);
+    manualLockRef.current = Date.now() + 8000; // ✅ ignore server flips for 8s
+
+    // capture best GPS at click-time for start inference
+    let startLat: number | undefined;
+    let startLng: number | undefined;
+    if (action === "start") {
+      try {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Highest,
+        });
+        startLat = pos.coords.latitude;
+        startLng = pos.coords.longitude;
+      } catch {
+        if (location?.coords) {
+          startLat = location.coords.latitude;
+          startLng = location.coords.longitude;
+        }
+      }
+    }
+
     try {
-      const action = tripActive ? "stop" : "start";
-      await apiClient.controlTrip?.({
-        vehicleId,
-        action,
-        route_id: routeId || undefined,
-      });
-      setTripActive(!tripActive);
+      let resp: any;
+      if (apiClient.controlTrip) {
+        resp = await apiClient.controlTrip({
+          vehicleId,
+          action,
+          route_id: routeId || undefined,
+          lat: startLat,
+          lng: startLng,
+        });
+      } else {
+        resp = await http.post("/driver/trip", {
+          vehicleId,
+          action,
+          route_id: routeId || undefined,
+          lat: startLat,
+          lng: startLng,
+        });
+      }
+
+      const newDir =
+        resp?.data?.direction ||
+        resp?.direction ||
+        resp?.data?.data?.direction ||
+        null;
+
+      if (action === "start" && (newDir === "to" || newDir === "fro")) {
+        setDirection(newDir);
+      }
+
+      // ✅ immediate backend-visible update (no waiting for next GPS tick)
+      await sendTelemetryBurst(startLat, startLng, nextActive ? "active" : "idle");
     } catch (err) {
+      // rollback on failure
+      setTripActive(!nextActive);
       Alert.alert("Trip Control Failed", "Could not update trip status.");
       console.error(err);
+    } finally {
+      setTripBusy(false);
     }
   };
 
@@ -315,9 +428,7 @@ export default function DriverDashboardTab() {
 
     return routeStops
       .map((s: any, idx: number) => {
-        const seq = Number(
-          Number.isFinite(s.sequence) ? s.sequence : idx
-        );
+        const seq = Number(Number.isFinite(s.sequence) ? s.sequence : idx);
         return {
           ...s,
           sequence: seq,
@@ -368,9 +479,7 @@ export default function DriverDashboardTab() {
             title={user?.name || "Driver"}
             description={
               vehicleId
-                ? `Vehicle ${vehicleId}${
-                    routeId ? ` • Route ${routeId}` : ""
-                  }`
+                ? `Vehicle ${vehicleId}${routeId ? ` • Route ${routeId}` : ""}`
                 : "No vehicle assigned"
             }
           />
@@ -409,13 +518,11 @@ export default function DriverDashboardTab() {
           </TouchableOpacity>
         </View>
 
-        <View
-          style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}
-        >
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
           <TouchableOpacity
-            style={[styles.tripBtn, { backgroundColor: "#16a34a", flex: 1 }]}
+            style={[styles.tripBtn, { backgroundColor: "#16a34a", flex: 1, opacity: tripBusy ? 0.6 : 1 }]}
             onPress={toggleTrip}
-            disabled={!vehicleId}
+            disabled={!vehicleId || tripBusy}
           >
             <Text style={styles.tripBtnText}>
               {tripActive ? "Stop Trip" : "Start Trip"}
@@ -431,7 +538,6 @@ export default function DriverDashboardTab() {
           </TouchableOpacity>
         </View>
 
-        {/* Upcoming reservations list */}
         <View style={{ marginTop: 16 }}>
           <Text style={styles.sectionTitle}>Upcoming reservations</Text>
           {loadingReservations ? (
@@ -442,12 +548,8 @@ export default function DriverDashboardTab() {
             </Text>
           ) : (
             stopsWithWaiting.map((s: any) => (
-              <Text
-                key={s.stop_id || s.sequence}
-                style={styles.subText}
-              >
-                • {s.stop_name || `Stop ${s.sequence}`} —{" "}
-                {s.waiting_count} waiting
+              <Text key={s.stop_id || s.sequence} style={styles.subText}>
+                • {s.stop_name || `Stop ${s.sequence}`} — {s.waiting_count} waiting
               </Text>
             ))
           )}
@@ -488,15 +590,7 @@ const styles = StyleSheet.create({
   },
   occBtnText: { color: "#fff", fontSize: 28, fontWeight: "700" },
   occValue: { fontSize: 24, fontWeight: "800", marginHorizontal: 16 },
-  tripBtn: {
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
-  },
+  tripBtn: { padding: 16, borderRadius: 12, alignItems: "center" },
   tripBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
+  sectionTitle: { fontSize: 16, fontWeight: "700", marginBottom: 4 },
 });

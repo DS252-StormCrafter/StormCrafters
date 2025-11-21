@@ -125,7 +125,7 @@ export const apiClient: API & {
 
     try {
       const maybePromiseOrFn = wsConnect((msg) => {
-        if (msg.type === "vehicle" || msg.type === "demand_update") cb(msg);
+        if (msg.type === "vehicle_update" || msg.type === "vehicle" || msg.type === "demand_update") cb(msg);
       });
 
       if (maybePromiseOrFn && typeof (maybePromiseOrFn as any).then === "function") {
