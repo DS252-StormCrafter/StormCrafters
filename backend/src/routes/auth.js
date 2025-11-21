@@ -14,8 +14,18 @@ export default function authRoutes(db) {
     auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
   });
 
-  const JWT_SECRET = process.env.JWT_SECRET || "secret";
-  const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10); // you can bump to 12 later
+  // =========================================================
+  // =============== SECURITY HELPERS ========================
+  // =========================================================
+  const getJwtSecret = () => {
+    const s = process.env.JWT_SECRET?.trim();
+    // In production, refuse to run without a real secret.
+    if (!s) throw new Error("JWT_SECRET missing in env");
+    return s;
+  };
+
+  // Bcrypt cost (default 10)
+  const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
 
   const normEmail = (e) => (e || "").toString().trim().toLowerCase();
 
@@ -111,14 +121,15 @@ export default function authRoutes(db) {
   // =========================================================
 
   // very small in-memory rate limiter (per server instance)
-  const RESET_RATE = new Map(); 
-  const RESET_COOLDOWN_MS = 60 * 1000;       // 1 min between requests
-  const RESET_MAX_PER_HOUR = 5;              // max 5 OTPs/hour per email
+  const RESET_RATE = new Map();
+  const RESET_COOLDOWN_MS = 60 * 1000; // 1 min between requests
+  const RESET_MAX_PER_HOUR = 5; // max 5 OTPs/hour per email
   const RESET_WINDOW_MS = 60 * 60 * 1000;
 
   function canSendReset(emailNorm) {
     const now = Date.now();
-    const entry = RESET_RATE.get(emailNorm) || { lastSent: 0, count: 0, windowStart: now };
+    const entry =
+      RESET_RATE.get(emailNorm) || { lastSent: 0, count: 0, windowStart: now };
 
     // reset window
     if (now - entry.windowStart > RESET_WINDOW_MS) {
@@ -181,7 +192,9 @@ export default function authRoutes(db) {
           text: `Your password reset OTP is ${otp}. It expires in 15 minutes.`,
         });
       } else {
-        console.log(`📩 RESET OTP for ${emailNorm}: ${otp} (email not configured)`);
+        console.log(
+          `📩 RESET OTP for ${emailNorm}: ${otp} (email not configured)`
+        );
       }
 
       return genericOk();
@@ -189,11 +202,11 @@ export default function authRoutes(db) {
       console.error("Forgot password error:", err);
       // still generic
       return res.json({
-        message: "If an account with that email exists, a reset code has been sent.",
+        message:
+          "If an account with that email exists, a reset code has been sent.",
       });
     }
   });
-
 
   // =========================================================
   // =============== RESET PASSWORD (VERIFY OTP) =============
@@ -215,7 +228,9 @@ export default function authRoutes(db) {
         return res.status(400).json({ error: "Passwords do not match." });
       }
       if (newPassword.length < 6) {
-        return res.status(400).json({ error: "Password must be at least 6 chars." });
+        return res
+          .status(400)
+          .json({ error: "Password must be at least 6 chars." });
       }
 
       const userRef = db.collection("users").doc(emailNorm);
@@ -225,7 +240,9 @@ export default function authRoutes(db) {
       }
 
       const user = snap.data();
-      const exp = user.resetOtpExpiresAt ? new Date(user.resetOtpExpiresAt).getTime() : 0;
+      const exp = user.resetOtpExpiresAt
+        ? new Date(user.resetOtpExpiresAt).getTime()
+        : 0;
       if (!user.resetOtpHash || !exp || Date.now() > exp) {
         return res.status(400).json({ error: "Invalid OTP or expired." });
       }
@@ -283,9 +300,15 @@ export default function authRoutes(db) {
       if (!match)
         return res.status(403).json({ error: "Invalid credentials" });
 
+      // ✅ Correct user token (no adminDoc copy-paste)
       const token = jwt.sign(
-        { uid: emailNorm, role: user.role },
-        JWT_SECRET,
+        {
+          id: snap.id,
+          email: emailNorm,
+          role: user.role || "user",
+          name: user.name,
+        },
+        getJwtSecret(),
         { expiresIn: "7d" }
       );
 
@@ -333,22 +356,22 @@ export default function authRoutes(db) {
       }
 
       const adminDoc = snap.docs[0];
-      const admin = adminDoc.data();
+      const adminData = adminDoc.data();
 
       // admin.password MUST be bcrypt hash
-      const match = await bcrypt.compare(password, admin.password);
+      const match = await bcrypt.compare(password, adminData.password);
       if (!match)
         return res.status(403).json({ error: "Invalid credentials" });
 
       const token = jwt.sign(
-        { id: adminDoc.id, email: admin.email, role: "admin" },
-        JWT_SECRET,
+        { id: adminDoc.id, email: adminData.email, role: "admin" },
+        getJwtSecret(), // ✅ hardened secret, no fallback
         { expiresIn: "7d" }
       );
 
       return res.json({
         token,
-        user: { email: admin.email, role: "admin" },
+        user: { email: adminData.email, role: "admin" },
       });
     } catch (err) {
       console.error("Admin login error:", err);
@@ -357,7 +380,7 @@ export default function authRoutes(db) {
   });
 
   // =========================================================
-  // =============== DRIVER LOGIN =============================
+  // =============== DRIVER LOGIN ============================
   // =========================================================
   router.post("/driver/login", async (req, res) => {
     const { email, password, passwordHash } = req.body;
@@ -389,22 +412,26 @@ export default function authRoutes(db) {
       }
 
       const driverDoc = snap.docs[0];
-      const driver = driverDoc.data();
+      const driverData = driverDoc.data();
 
       // driver.password MUST be bcrypt hash
-      const match = await bcrypt.compare(password, driver.password);
+      const match = await bcrypt.compare(password, driverData.password);
       if (!match)
         return res.status(403).json({ error: "Invalid credentials" });
 
       const token = jwt.sign(
-        { id: driverDoc.id, email: driver.email, role: "driver" },
-        JWT_SECRET,
+        { id: driverDoc.id, email: driverData.email, role: "driver" },
+        getJwtSecret(), // ✅ hardened secret
         { expiresIn: "7d" }
       );
 
       return res.json({
         token,
-        user: { email: driver.email, role: "driver", name: driver.name },
+        user: {
+          email: driverData.email,
+          role: "driver",
+          name: driverData.name,
+        },
       });
     } catch (err) {
       console.error("Driver login error:", err);

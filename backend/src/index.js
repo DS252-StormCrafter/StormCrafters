@@ -3,6 +3,7 @@
  * WebSocket auth-first + Direction-aware broadcast + rock-solid CORS for localhost
  */
 import express from "express";
+import "dotenv/config";  // or: import dotenv from "dotenv"; dotenv.config();
 import admin from "firebase-admin";
 import dotenv from "dotenv";
 import fs from "fs";
@@ -13,14 +14,13 @@ import { WebSocketServer } from "ws";
 import * as querystring from "querystring";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { authenticate } from "./middleware/auth.js";
-
+import { authenticate, requireAdmin } from "./middleware/auth.js";
+import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
 import vehicleRoutes from "./routes/vehicle.js";
 import routeRoutes from "./routes/route.js";
 import feedbackRoutes from "./routes/feedback.js";
 import alertsRoutes from "./routes/alerts.js";
-import adminRoutes from "./routes/admin.js";
 import driverRoutes from "./routes/driver.js";
 import stopsRoutes from "./routes/stops.js";
 import plannerRoutes from "./routes/planner.js";
@@ -338,7 +338,7 @@ app.get("/admin/analytics", async (req, res) => {
   }
 });
 
-app.use("/admin", authenticate, adminRoutes(db));
+app.use("/admin", authenticate, requireAdmin, adminRoutes(db));
 app.use("/assignments", assignmentRoutes(db));
 
 // 🔹 Mount new reporting routes

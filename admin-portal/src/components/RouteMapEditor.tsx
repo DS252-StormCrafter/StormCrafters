@@ -1,3 +1,4 @@
+// admin-portal/src/components/RouteMapEditor.tsx
 import React, { useEffect, useRef, useState } from "react";
 
 type DirectionKey = "to" | "fro";
@@ -24,8 +25,8 @@ type Props = {
   stops: Stop[];
   primaryColor: string;
   overlays: OverlayRoute[];
-  vehicles: any[]; // normalized in VehicleLayer
-  demands: any[]; // normalized in DemandLayer
+  vehicles: any[];
+  demands: any[];
   onMapClick?: (lat: number, lon: number) => void;
   onMarkerMove?: (stopId: string, lat: number, lon: number) => void; // reserved
   onRenameStop?: (stopId: string) => void;
@@ -37,93 +38,97 @@ declare global {
   interface Window {
     google?: any;
     __TV_GMAPS_KEY__?: string; // optional runtime override
+    __TV_GMAPS_LOADING__?: boolean;
+    __TV_GMAPS_LOADED__?: boolean;
   }
 }
 
 const DEFAULT_CENTER = { lat: 13.0213, lng: 77.567 };
 const GMAPS_SCRIPT_ID = "tv-google-maps-js";
-
-// OPTIONAL: last-resort hardcoded key (only if env refuses to cooperate)
-const HARDCODED_GMAPS_KEY = "<YOUR_GOOGLE_MAPS_KEY>"; // e.g. "AI*******************"
-
 let mapsLoadAttempted = false;
 
 // ------------------------------------------------------
-// Google Maps JS loader
+// Google Maps JS loader (fixed for Vite env + retry-safe)
 // ------------------------------------------------------
-function ensureGoogleMapsScript() {
+function ensureGoogleMapsScript(
+  onLoaded?: () => void,
+  onError?: (msg: string) => void
+) {
   if (typeof window === "undefined") return;
 
+  // already loaded
   if (window.google && window.google.maps) {
+    onLoaded?.();
     return;
   }
-
-  if (mapsLoadAttempted) return;
-  mapsLoadAttempted = true;
 
   const existing = document.getElementById(GMAPS_SCRIPT_ID) as
     | HTMLScriptElement
     | null;
   if (existing) return;
 
-  const env: any = (import.meta as any)?.env || {};
-
-  // helpful debug
-  console.log("[RouteMapEditor] env snapshot", {
-    VITE_GOOGLE_MAPS_URL: env.VITE_GOOGLE_MAPS_URL,
-    VITE_GOOGLE_MAPS_KEY: env.VITE_GOOGLE_MAPS_API_KEY,
-  });
-
-  const rawUrl: string = env.VITE_GOOGLE_MAPS_URL || "";
-  const rawKey: string =
-    env.VITE_GOOGLE_MAPS_API_KEY ||
+  // ✅ Direct Vite env access (guaranteed injection)
+  const urlFromEnv = (import.meta.env.VITE_GOOGLE_MAPS_URL || "").trim();
+  const keyFromEnv = (
+    import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||
     window.__TV_GMAPS_KEY__ ||
-    HARDCODED_GMAPS_KEY ||
-    "";
+    ""
+  ).trim();
 
-  const urlFromEnv = rawUrl.trim();
-  const keyFromEnv = rawKey.trim();
+  console.log("[RouteMapEditor] env snapshot", {
+    VITE_GOOGLE_MAPS_URL: urlFromEnv || "(empty)",
+    VITE_GOOGLE_MAPS_API_KEY_present: !!keyFromEnv,
+    VITE_GOOGLE_MAPS_API_KEY_length: keyFromEnv.length,
+  });
 
   let src: string | null = null;
 
   if (urlFromEnv) {
-    // if they left VITE_GOOGLE_MAPS_KEY but we *do* have a real key, swap it in
     if (urlFromEnv.includes("VITE_GOOGLE_MAPS_KEY") && keyFromEnv) {
       src = urlFromEnv.replace(
         "VITE_GOOGLE_MAPS_KEY",
         encodeURIComponent(keyFromEnv)
       );
-      console.log(
-        "[RouteMapEditor] Using VITE_GOOGLE_MAPS_URL with VITE_GOOGLE_MAPS_KEY substituted."
-      );
     } else {
       src = urlFromEnv;
-      console.log("[RouteMapEditor] Using VITE_GOOGLE_MAPS_URL as provided.");
     }
   } else if (keyFromEnv) {
     src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
       keyFromEnv
-    )}&libraries=places`;
-    console.log("[RouteMapEditor] Built Google Maps URL from KEY.");
+    )}&libraries=places&v=weekly`;
   }
 
+  // ✅ If we still don't have src, DO NOT lock attempts forever.
   if (!src) {
-    console.warn(
-      "[RouteMapEditor] Google Maps JS not loaded: neither VITE_GOOGLE_MAPS_URL nor VITE_GOOGLE_MAPS_KEY configured (and no HARDCODED_GMAPS_KEY)."
-    );
+    mapsLoadAttempted = false; // allow retry on next render
+    const msg =
+      "Google Maps key missing. Set VITE_GOOGLE_MAPS_API_KEY in admin-portal/.env and restart the dev server.";
+    console.error("[RouteMapEditor]", msg);
+    onError?.(msg);
     return;
   }
+
+  // ✅ Only now mark attempted
+  if (mapsLoadAttempted) return;
+  mapsLoadAttempted = true;
 
   const script = document.createElement("script");
   script.id = GMAPS_SCRIPT_ID;
   script.src = src;
   script.async = true;
   script.defer = true;
+
+  script.onload = () => {
+    console.log("[RouteMapEditor] Google Maps JS loaded.");
+    onLoaded?.();
+  };
+
   script.onerror = () => {
-    console.error(
-      "[RouteMapEditor] Failed to load Google Maps JavaScript API from:",
-      src
-    );
+    mapsLoadAttempted = false; // allow retry if load failed
+    const msg =
+      "Failed to load Google Maps JS. Check API key, billing, or referrer restrictions.";
+    console.error("[RouteMapEditor] " + msg, src);
+    onError?.(msg);
   };
 
   document.head.appendChild(script);
@@ -169,13 +174,34 @@ const RouteMapEditor: React.FC<Props> = ({
 
     let cancelled = false;
 
-    ensureGoogleMapsScript();
+    ensureGoogleMapsScript(
+      () => {
+        if (cancelled || mapObjRef.current || !mapRef.current) return;
 
+        if (window.google && window.google.maps) {
+          const map = new window.google.maps.Map(mapRef.current, {
+            center: DEFAULT_CENTER,
+            zoom: 15,
+            mapTypeId: window.google.maps.MapTypeId.ROADMAP,
+            streetViewControl: false,
+            fullscreenControl: false,
+            mapTypeControl: false,
+          });
+          mapObjRef.current = map;
+          setMapsReady(true);
+          setMapsError(null);
+        }
+      },
+      (msg) => {
+        if (cancelled) return;
+        setMapsError(msg);
+      }
+    );
+
+    // fallback poll if onload doesn't fire for some reason
     const startTime = Date.now();
-
-    const tryInit = () => {
+    const poll = () => {
       if (cancelled || mapObjRef.current || !mapRef.current) return;
-
       if (window.google && window.google.maps) {
         const map = new window.google.maps.Map(mapRef.current, {
           center: DEFAULT_CENTER,
@@ -185,29 +211,16 @@ const RouteMapEditor: React.FC<Props> = ({
           fullscreenControl: false,
           mapTypeControl: false,
         });
-
-        console.log("[RouteMapEditor] Google Maps JS loaded.");
         mapObjRef.current = map;
         setMapsReady(true);
         setMapsError(null);
         return;
       }
-
-      const elapsed = Date.now() - startTime;
-      if (elapsed > 15000) {
-        console.error(
-          "[RouteMapEditor] Timed out waiting for Google Maps JS (15s)."
-        );
-        setMapsError(
-          "Google Maps failed to load. Check your API key, billing, or ad-blocker."
-        );
-        return;
+      if (Date.now() - startTime < 15000) {
+        window.setTimeout(poll, 250);
       }
-
-      window.setTimeout(tryInit, 250);
     };
-
-    tryInit();
+    poll();
 
     return () => {
       cancelled = true;
@@ -384,8 +397,7 @@ const RouteMapEditor: React.FC<Props> = ({
               lng: s.location?.longitude,
             }))
             .filter(
-              (p) =>
-                typeof p.lat === "number" && typeof p.lng === "number"
+              (p) => typeof p.lat === "number" && typeof p.lng === "number"
             );
 
     if (!coordsSource.length) return;
@@ -422,8 +434,7 @@ const RouteMapEditor: React.FC<Props> = ({
           lng: s.location?.longitude,
         }))
         .filter(
-          (p) =>
-            typeof p.lat === "number" && typeof p.lng === "number"
+          (p) => typeof p.lat === "number" && typeof p.lng === "number"
         );
 
       if (!coords.length) return;
@@ -455,8 +466,9 @@ const RouteMapEditor: React.FC<Props> = ({
       const lng = Number((v.lng ?? v.lon) ?? NaN);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-      const id =
-        String(v.id || v.vehicle_id || v.vehicle_plate || v.plateNo || "");
+      const id = String(
+        v.id || v.vehicle_id || v.vehicle_plate || v.plateNo || ""
+      );
       if (!id) return;
       activeIds.add(id);
 
@@ -542,10 +554,26 @@ const RouteMapEditor: React.FC<Props> = ({
       // smooth update = just move existing marker; no recreate (no blink)
       marker.setPosition({ lat, lng });
 
-      const icon = marker.getIcon() || {};
-      (icon as any).fillColor = v.demand_high ? "#ef4444" : "#2563eb";
-      marker.setIcon(icon);
+      // ✅ Safe icon update even if getIcon() returns a string
+      const currentIcon = marker.getIcon();
+      let newIcon: any;
 
+      if (typeof currentIcon === "string") {
+        newIcon = {
+          path:
+            "M -14 -6 L -4 -6 L -2 -10 L 6 -10 L 10 -4 L 10 4 L 6 10 L -2 10 L -4 6 L -14 6 z",
+          fillColor: v.demand_high ? "#ef4444" : "#2563eb",
+          fillOpacity: 0.98,
+          strokeColor: "#ffffff",
+          strokeWeight: 2,
+          scale: 1,
+        };
+      } else {
+        newIcon = { ...(currentIcon || {}) };
+        newIcon.fillColor = v.demand_high ? "#ef4444" : "#2563eb";
+      }
+
+      marker.setIcon(newIcon);
       (marker as any).__infoData = v;
       marker.setMap(map);
     });
@@ -627,17 +655,14 @@ const RouteMapEditor: React.FC<Props> = ({
           if (map.getZoom() > 17) map.setZoom(17);
         }
       );
-      return () =>
-        window.google?.maps.event.removeListener(listener);
+      return () => window.google?.maps.event.removeListener(listener);
     }
   }, [stops, vehicles]);
 
   return (
     <div className="route-map-editor">
       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
-      {loading && (
-        <div className="map-loading">Loading map &amp; route…</div>
-      )}
+      {loading && <div className="map-loading">Loading map &amp; route…</div>}
       {!mapsReady && mapsError && (
         <div
           className="map-loading"
