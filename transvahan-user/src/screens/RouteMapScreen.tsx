@@ -1,6 +1,12 @@
 // transvahan-user/src/screens/RouteMapScreen.tsx
 import React, { useEffect, useState, useRef } from "react";
-import { View, Text, Alert, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  Alert,
+  StyleSheet,
+  useColorScheme,
+} from "react-native";
 import MapView, {
   Marker,
   Polyline,
@@ -9,8 +15,10 @@ import MapView, {
 } from "react-native-maps";
 import Constants from "expo-constants";
 import axios from "axios";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../auth/authContext";
 import { apiClient } from "../api/client";
+import { getColors } from "../theme/colors";
 
 const API = (Constants as any).expoConfig?.extra?.API_BASE_URL;
 
@@ -39,6 +47,9 @@ function computeBearing(a: LatLng, b: LatLng): number {
 export default function RouteMapScreen({ route }: any) {
   const { vehicle: initialVehicle } = route.params;
   const { token } = useAuth();
+  const scheme = useColorScheme();
+  const C = getColors(scheme);
+  const insets = useSafeAreaInsets();
 
   const [vehicle, setVehicle] = useState<any>(initialVehicle);
 
@@ -50,9 +61,9 @@ export default function RouteMapScreen({ route }: any) {
   });
 
   const [stops, setStops] = useState<any[]>([]);
-  const [shapePoints, setShapePoints] = useState<
-    { lat: number; lon: number }[]
-  >([]);
+  const [shapePoints, setShapePoints] = useState<{ lat: number; lon: number }[]>(
+    []
+  );
 
   const prevPosRef = useRef<LatLng | null>(null);
   const [heading, setHeading] = useState(0);
@@ -63,9 +74,7 @@ export default function RouteMapScreen({ route }: any) {
       try {
         const { data } = await axios.get(
           `${API}/routes/${vehicle.route_id}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
+          { headers: { Authorization: `Bearer ${token}` } }
         );
         const allStops =
           data?.directions?.to?.concat(data?.directions?.fro || []) ||
@@ -73,10 +82,7 @@ export default function RouteMapScreen({ route }: any) {
           [];
         setStops(allStops);
       } catch (err: any) {
-        console.error(
-          "Route fetch failed:",
-          err?.response?.data || err
-        );
+        console.error("Route fetch failed:", err?.response?.data || err);
         Alert.alert(
           "❌ Route fetch failed",
           err?.response?.data?.error || "Error"
@@ -97,19 +103,14 @@ export default function RouteMapScreen({ route }: any) {
             ? vehicle.direction.toLowerCase()
             : "to";
 
-        const { data } = await axios.get(
-          `${API}/routes/${vehicle.route_id}/shape`,
-          {
-            params: { direction: dir, force: "1" },
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
+        const { data } = await axios.get(`${API}/routes/${vehicle.route_id}/shape`, {
+          params: { direction: dir, force: "1" },
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
         if (data && Array.isArray(data.points)) {
           const clean = data.points.filter(
-            (p: any) =>
-              typeof p.lat === "number" &&
-              typeof p.lon === "number"
+            (p: any) => typeof p.lat === "number" && typeof p.lon === "number"
           );
           setShapePoints(clean);
 
@@ -138,71 +139,59 @@ export default function RouteMapScreen({ route }: any) {
           setShapePoints([]);
         }
       } catch (err: any) {
-        console.error(
-          "Route shape fetch failed:",
-          err?.response?.data || err
-        );
+        console.error("Route shape fetch failed:", err?.response?.data || err);
         setShapePoints([]);
       }
     }
     fetchShape();
   }, [vehicle.route_id, vehicle.direction, token]);
 
-  // 🔴 LIVE VEHICLE SUBSCRIPTION: Uber-style movement
+  // 🔴 LIVE VEHICLE SUBSCRIPTION
   useEffect(() => {
     const targetId = vehicle.id || vehicle.vehicle_id;
-
     const unsubscribePromise = awaitableSubscribe();
 
     async function awaitableSubscribe() {
-      const disconnect = await apiClient.subscribeVehicles!(
-        (msg: any) => {
-          if (msg.type === "vehicle" && msg.data) {
-            const v = msg.data;
-            const id = v.id || v.vehicle_id;
-            if (
-              String(id).trim().toLowerCase() ===
-              String(targetId).trim().toLowerCase()
-            ) {
-              // update heading
-              const lat = v.lat ?? v.location?.lat;
-              const lng = v.lng ?? v.location?.lng;
-              if (typeof lat === "number" && typeof lng === "number") {
-                const current: LatLng = { latitude: lat, longitude: lng };
-                if (prevPosRef.current) {
-                  const h = computeBearing(prevPosRef.current, current);
-                  setHeading(h);
-                }
-                prevPosRef.current = current;
-
-                setVehicle((prev: any) => ({
-                  ...prev,
-                  ...v,
-                  lat,
-                  lng,
-                }));
+      const disconnect = await apiClient.subscribeVehicles!((msg: any) => {
+        if (msg.type === "vehicle" && msg.data) {
+          const v = msg.data;
+          const id = v.id || v.vehicle_id;
+          if (
+            String(id).trim().toLowerCase() ===
+            String(targetId).trim().toLowerCase()
+          ) {
+            const lat = v.lat ?? v.location?.lat;
+            const lng = v.lng ?? v.location?.lng;
+            if (typeof lat === "number" && typeof lng === "number") {
+              const current: LatLng = { latitude: lat, longitude: lng };
+              if (prevPosRef.current) {
+                const h = computeBearing(prevPosRef.current, current);
+                setHeading(h);
               }
+              prevPosRef.current = current;
+
+              setVehicle((prev: any) => ({
+                ...prev,
+                ...v,
+                lat,
+                lng,
+              }));
             }
           }
         }
-      );
+      });
       return disconnect;
     }
 
     return () => {
-      // always handle the async/unified unsubscribe result
       if (unsubscribePromise && typeof (unsubscribePromise as any).then === "function") {
         (unsubscribePromise as any)
-          .then((fn: any) => {
-            if (typeof fn === "function") fn();
-          })
+          .then((fn: any) => typeof fn === "function" && fn())
           .catch(() => {});
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialVehicle.id, initialVehicle.vehicle_id]);
 
-  // Normalize stop => { latitude, longitude }
   const toCoord = (s: any) => {
     const lat = s?.lat ?? s?.location?.lat ?? s?.location?.latitude;
     const lng = s?.lng ?? s?.lon ?? s?.location?.lng ?? s?.location?.longitude;
@@ -213,65 +202,58 @@ export default function RouteMapScreen({ route }: any) {
 
   const polyCoords =
     shapePoints.length > 1
-      ? shapePoints.map((p) => ({
-          latitude: p.lat,
-          longitude: p.lon,
-        }))
+      ? shapePoints.map((p) => ({ latitude: p.lat, longitude: p.lon }))
       : [];
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: C.background }}>
       <MapView
         style={{ flex: 1 }}
         provider={PROVIDER_GOOGLE}
         region={region}
         onRegionChangeComplete={setRegion}
       >
-        {/* Live vehicle marker */}
-        {typeof vehicle.lat === "number" &&
-          typeof vehicle.lng === "number" && (
-            <Marker
-              coordinate={{
-                latitude: vehicle.lat,
-                longitude: vehicle.lng,
-              }}
-              title={`Shuttle ${vehicle.vehicle_id}`}
-              description={`Vacant: ${
-                (vehicle.capacity ?? 0) - (vehicle.occupancy ?? 0)
-              }/${vehicle.capacity ?? "?"}`}
-              rotation={heading}
-            />
-          )}
-
-        {/* Stop markers (for context) */}
-        {stops.length > 0 &&
-          stops.map((s, idx) => {
-            const c = toCoord(s);
-            if (!c) return null;
-            return (
-              <Marker
-                key={idx}
-                coordinate={c}
-                title={`Stop: ${s.name || s.stop_name || idx + 1}`}
-              />
-            );
-          })}
-
-        {/* Road-following polyline ONLY if shape exists */}
-        {polyCoords.length > 1 && (
-          <Polyline
-            coordinates={polyCoords}
-            strokeColor="#2563eb"
-            strokeWidth={4}
+        {typeof vehicle.lat === "number" && typeof vehicle.lng === "number" && (
+          <Marker
+            coordinate={{ latitude: vehicle.lat, longitude: vehicle.lng }}
+            title={`Shuttle ${vehicle.vehicle_id}`}
+            description={`Vacant: ${
+              (vehicle.capacity ?? 0) - (vehicle.occupancy ?? 0)
+            }/${vehicle.capacity ?? "?"}`}
+            rotation={heading}
           />
+        )}
+
+        {stops.map((s, idx) => {
+          const c = toCoord(s);
+          if (!c) return null;
+          return (
+            <Marker
+              key={idx}
+              coordinate={c}
+              title={`Stop: ${s.name || s.stop_name || idx + 1}`}
+            />
+          );
+        })}
+
+        {polyCoords.length > 1 && (
+          <Polyline coordinates={polyCoords} strokeColor={C.primary} strokeWidth={4} />
         )}
       </MapView>
 
-      <View style={{ padding: 12 }}>
-        <Text style={{ fontWeight: "700" }}>Route Info</Text>
-        <Text>Route ID: {vehicle.route_id}</Text>
-        <Text>Status: {vehicle.status}</Text>
-        <Text>
+      <View
+        style={{
+          padding: 12,
+          paddingBottom: insets.bottom + 12,
+          backgroundColor: C.card,
+          borderTopWidth: 1,
+          borderTopColor: C.border,
+        }}
+      >
+        <Text style={{ fontWeight: "700", color: C.text }}>Route Info</Text>
+        <Text style={{ color: C.text }}>Route ID: {vehicle.route_id}</Text>
+        <Text style={{ color: C.text }}>Status: {vehicle.status}</Text>
+        <Text style={{ color: C.text }}>
           Occupancy: {vehicle.occupancy ?? 0}/{vehicle.capacity ?? 4}
         </Text>
       </View>

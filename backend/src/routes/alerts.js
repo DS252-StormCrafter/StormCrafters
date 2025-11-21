@@ -1,3 +1,4 @@
+// backend/src/routes/alerts.js
 import { Router } from "express";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 

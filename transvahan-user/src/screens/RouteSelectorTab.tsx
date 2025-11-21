@@ -9,9 +9,12 @@ import {
   FlatList,
   ActivityIndicator,
   ScrollView,
+  useColorScheme,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiClient as client, http } from "../api/client";
+import { getColors } from "../theme/colors";
 
 type RouteItem = {
   id: string;
@@ -105,7 +108,6 @@ function buildUniqueStops(raw: any[]): UniqueStop[] {
     } else {
       const entry = map.get(key)!;
       entry.routes.add(String(routeLabel));
-      // we keep the first lat/lon as canonical
     }
   });
 
@@ -120,6 +122,9 @@ function buildUniqueStops(raw: any[]): UniqueStop[] {
 
 export default function RouteSelectorTab() {
   const navigation = useNavigation<any>();
+  const scheme = useColorScheme();
+  const C = getColors(scheme);
+  const insets = useSafeAreaInsets();
 
   // All lines
   const [routes, setRoutes] = useState<RouteItem[]>([]);
@@ -152,9 +157,7 @@ export default function RouteSelectorTab() {
         setRoutes(normalizeRoutes(Array.isArray(list) ? list : []));
       } catch (err: any) {
         console.warn("Routes load error:", err);
-        setRoutesError(
-          err?.response?.data?.error || "Failed to load routes."
-        );
+        setRoutesError(err?.response?.data?.error || "Failed to load routes.");
       } finally {
         setRoutesLoading(false);
       }
@@ -177,9 +180,7 @@ export default function RouteSelectorTab() {
         }
       } catch (err: any) {
         console.warn("Stops load error:", err);
-        setStopsError(
-          err?.response?.data?.error || "Failed to load stops."
-        );
+        setStopsError(err?.response?.data?.error || "Failed to load stops.");
       } finally {
         setStopsLoading(false);
       }
@@ -195,7 +196,7 @@ export default function RouteSelectorTab() {
         const routesLabel = s.routes.join(" ").toLowerCase();
         return name.includes(q) || routesLabel.includes(q);
       })
-      .slice(0, 8);
+      .slice(0, 12); // allow more, still fast
   };
 
   const fromSuggestions = filterStops(fromQuery);
@@ -267,8 +268,7 @@ export default function RouteSelectorTab() {
   }, [planResult]);
 
   const handleRoutePress = (r: RouteItem) => {
-    const color =
-      ROUTE_COLORS[r.route_name] || "#2563eb";
+    const color = ROUTE_COLORS[r.route_name] || C.primary;
 
     navigation.navigate("RouteDetail", {
       routeData: {
@@ -284,23 +284,34 @@ export default function RouteSelectorTab() {
 
   return (
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ paddingBottom: 24 }}
+      style={[styles.container, { backgroundColor: C.background }]}
+      contentContainerStyle={{
+        paddingBottom: insets.bottom + 24,
+      }}
+      keyboardShouldPersistTaps="handled"
     >
       {/* Planner search area */}
-      <View style={styles.searchCard}>
-        <Text style={styles.searchTitle}>
+      <View style={[styles.searchCard, { backgroundColor: C.card }]}>
+        <Text style={[styles.searchTitle, { color: C.text }]}>
           🧭 Plan your campus trip
         </Text>
-        <Text style={styles.searchSubtitle}>
+        <Text style={[styles.searchSubtitle, { color: C.mutedText }]}>
           Search using stop or landmark names. We’ll show an itinerary and
           highlight the lines that work best.
         </Text>
 
+        {/* FROM */}
         <View style={styles.inputWrapper}>
-          <Text style={styles.label}>From</Text>
+          <Text style={[styles.label, { color: C.mutedText }]}>From</Text>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                backgroundColor: C.inputBg,
+                borderColor: C.inputBorder,
+                color: C.text,
+              },
+            ]}
             value={fromQuery}
             onChangeText={(t) => {
               setFromQuery(t);
@@ -309,33 +320,61 @@ export default function RouteSelectorTab() {
               setPlanError(null);
             }}
             placeholder="e.g. Main Gate, New Hostel Complex…"
+            placeholderTextColor={C.mutedText}
           />
+
           {fromSuggestions.length > 0 && (
-            <View style={styles.suggestionsBox}>
-              {fromSuggestions.map((s, idx) => (
-                <TouchableOpacity
-                  key={`${s.id}_from_${idx}`}
-                  style={styles.suggestionItem}
-                  onPress={() => selectFromStop(s)}
-                >
-                  <Text style={styles.suggestionTitle}>
-                    {s.name}
-                  </Text>
-                  {!!s.routes.length && (
-                    <Text style={styles.suggestionMeta}>
-                      Lines: {s.routes.join(", ")}
+            <View
+              style={[
+                styles.suggestionsBox,
+                { backgroundColor: C.card, borderColor: C.border },
+              ]}
+            >
+              <FlatList
+                data={fromSuggestions}
+                keyExtractor={(s, idx) => `${s.id}_from_${idx}`}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                style={{ maxHeight: 180 }}
+                renderItem={({ item: s }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.suggestionItem,
+                      { borderBottomColor: C.border },
+                    ]}
+                    onPress={() => selectFromStop(s)}
+                  >
+                    <Text
+                      style={[styles.suggestionTitle, { color: C.text }]}
+                    >
+                      {s.name}
                     </Text>
-                  )}
-                </TouchableOpacity>
-              ))}
+                    {!!s.routes.length && (
+                      <Text
+                        style={[styles.suggestionMeta, { color: C.mutedText }]}
+                      >
+                        Lines: {s.routes.join(", ")}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
             </View>
           )}
         </View>
 
+        {/* TO */}
         <View style={styles.inputWrapper}>
-          <Text style={styles.label}>To</Text>
+          <Text style={[styles.label, { color: C.mutedText }]}>To</Text>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                backgroundColor: C.inputBg,
+                borderColor: C.inputBorder,
+                color: C.text,
+              },
+            ]}
             value={toQuery}
             onChangeText={(t) => {
               setToQuery(t);
@@ -344,31 +383,51 @@ export default function RouteSelectorTab() {
               setPlanError(null);
             }}
             placeholder="e.g. Biological Sciences Building…"
+            placeholderTextColor={C.mutedText}
           />
+
           {toSuggestions.length > 0 && (
-            <View style={styles.suggestionsBox}>
-              {toSuggestions.map((s, idx) => (
-                <TouchableOpacity
-                  key={`${s.id}_to_${idx}`}
-                  style={styles.suggestionItem}
-                  onPress={() => selectToStop(s)}
-                >
-                  <Text style={styles.suggestionTitle}>
-                    {s.name}
-                  </Text>
-                  {!!s.routes.length && (
-                    <Text style={styles.suggestionMeta}>
-                      Lines: {s.routes.join(", ")}
+            <View
+              style={[
+                styles.suggestionsBox,
+                { backgroundColor: C.card, borderColor: C.border },
+              ]}
+            >
+              <FlatList
+                data={toSuggestions}
+                keyExtractor={(s, idx) => `${s.id}_to_${idx}`}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                style={{ maxHeight: 180 }}
+                renderItem={({ item: s }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.suggestionItem,
+                      { borderBottomColor: C.border },
+                    ]}
+                    onPress={() => selectToStop(s)}
+                  >
+                    <Text
+                      style={[styles.suggestionTitle, { color: C.text }]}
+                    >
+                      {s.name}
                     </Text>
-                  )}
-                </TouchableOpacity>
-              ))}
+                    {!!s.routes.length && (
+                      <Text
+                        style={[styles.suggestionMeta, { color: C.mutedText }]}
+                      >
+                        Lines: {s.routes.join(", ")}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
             </View>
           )}
         </View>
 
         <TouchableOpacity
-          style={styles.planButton}
+          style={[styles.planButton, { backgroundColor: C.primary }]}
           onPress={planRoute}
           disabled={planLoading}
         >
@@ -378,39 +437,46 @@ export default function RouteSelectorTab() {
         </TouchableOpacity>
 
         {stopsLoading && (
-          <Text style={styles.mutedText}>
+          <Text style={[styles.mutedText, { color: C.mutedText }]}>
             Loading stops for search…
           </Text>
         )}
         {stopsError && (
-          <Text style={styles.errorText}>{stopsError}</Text>
+          <Text style={[styles.errorText, { color: C.danger }]}>
+            {stopsError}
+          </Text>
         )}
         {planError && (
-          <Text style={styles.errorText}>{planError}</Text>
+          <Text style={[styles.errorText, { color: C.danger }]}>
+            {planError}
+          </Text>
         )}
 
         {/* Itinerary summary */}
         {planResult && (
-          <View style={styles.itineraryCard}>
-            <Text style={styles.itineraryTitle}>Itinerary</Text>
+          <View style={[styles.itineraryCard, { borderTopColor: C.border }]}>
+            <Text style={[styles.itineraryTitle, { color: C.text }]}>
+              Itinerary
+            </Text>
+
             {planResult.steps.map((s, idx) => {
               if (s.type === "walk")
                 return (
-                  <Text key={idx} style={styles.itineraryLine}>
+                  <Text key={idx} style={[styles.itineraryLine, { color: C.text }]}>
                     🚶 Walk {Math.round(s.distance || 0)} m →{" "}
                     {s.to?.stop_name || "destination"}
                   </Text>
                 );
               if (s.type === "ride")
                 return (
-                  <Text key={idx} style={styles.itineraryLine}>
+                  <Text key={idx} style={[styles.itineraryLine, { color: C.text }]}>
                     🚌 Take {s.route_name} Line from{" "}
                     {s.from?.stop_name} → {s.to?.stop_name}
                   </Text>
                 );
               if (s.type === "transfer")
                 return (
-                  <Text key={idx} style={styles.itineraryLine}>
+                  <Text key={idx} style={[styles.itineraryLine, { color: C.text }]}>
                     🔁 Transfer between{" "}
                     {s.between?.[0]?.stop_name} ↔{" "}
                     {s.between?.[1]?.stop_name}
@@ -420,7 +486,7 @@ export default function RouteSelectorTab() {
             })}
 
             {recommendedLineNames.size > 0 && (
-              <Text style={styles.itineraryHint}>
+              <Text style={[styles.itineraryHint, { color: C.mutedText }]}>
                 Suggested lines for this trip:{" "}
                 {Array.from(recommendedLineNames).join(", ")}.
                 Tap one of these lines below to view live buses and
@@ -433,19 +499,20 @@ export default function RouteSelectorTab() {
 
       {/* Route list area */}
       <View style={styles.routesHeaderRow}>
-        <Text style={styles.routesTitle}>All Lines</Text>
+        <Text style={[styles.routesTitle, { color: C.text }]}>All Lines</Text>
         {routesLoading && (
-          <ActivityIndicator color="#2563eb" size="small" />
+          <ActivityIndicator color={C.primary} size="small" />
         )}
       </View>
+
       {routesError && (
-        <Text style={[styles.errorText, { marginHorizontal: 12 }]}>
+        <Text style={[styles.errorText, { marginHorizontal: 12, color: C.danger }]}>
           {routesError}
         </Text>
       )}
 
       {!routesLoading && !routes.length && !routesError && (
-        <Text style={[styles.mutedText, { marginHorizontal: 12 }]}>
+        <Text style={[styles.mutedText, { marginHorizontal: 12, color: C.mutedText }]}>
           No routes configured yet.
         </Text>
       )}
@@ -456,17 +523,18 @@ export default function RouteSelectorTab() {
         scrollEnabled={false}
         contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4 }}
         renderItem={({ item }) => {
-          const isRecommended = recommendedLineNames.has(
-            item.route_name
-          );
-          const color =
-            ROUTE_COLORS[item.route_name] || "#2563eb";
+          const isRecommended = recommendedLineNames.has(item.route_name);
+          const color = ROUTE_COLORS[item.route_name] || C.primary;
 
           return (
             <TouchableOpacity
               style={[
                 styles.routeCard,
-                { borderLeftColor: color },
+                {
+                  borderLeftColor: color,
+                  backgroundColor: C.card,
+                  shadowColor: scheme === "dark" ? "#000" : "#000",
+                },
               ]}
               onPress={() => handleRoutePress(item)}
             >
@@ -474,18 +542,20 @@ export default function RouteSelectorTab() {
                 <Text style={[styles.routeName, { color }]}>
                   {item.route_name} Line
                 </Text>
+
                 {isRecommended && (
-                  <View style={styles.routeChip}>
-                    <Text style={styles.routeChipText}>
+                  <View style={[styles.routeChip, { backgroundColor: C.successBg }]}>
+                    <Text style={[styles.routeChipText, { color: C.successText }]}>
                       Recommended
                     </Text>
                   </View>
                 )}
               </View>
-              <Text style={styles.routeMeta}>
+
+              <Text style={[styles.routeMeta, { color: C.mutedText }]}>
                 {item.start || "Start"} → {item.end || "End"}
               </Text>
-              <Text style={styles.routeMeta}>
+              <Text style={[styles.routeMeta, { color: C.mutedText }]}>
                 To trips: {item.to_count ?? "—"} · Fro trips:{" "}
                 {item.fro_count ?? "—"}
               </Text>
@@ -498,15 +568,13 @@ export default function RouteSelectorTab() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb" },
+  container: { flex: 1 },
 
   searchCard: {
-    backgroundColor: "#fff",
     margin: 12,
     marginBottom: 6,
     padding: 12,
     borderRadius: 12,
-    shadowColor: "#000",
     shadowOpacity: 0.06,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
@@ -518,7 +586,6 @@ const styles = StyleSheet.create({
   },
   searchSubtitle: {
     fontSize: 12,
-    color: "#6b7280",
     marginBottom: 8,
   },
   inputWrapper: {
@@ -526,31 +593,25 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    color: "#4b5563",
     marginBottom: 2,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#d1d5db",
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
     fontSize: 14,
-    backgroundColor: "#f9fafb",
   },
   suggestionsBox: {
     marginTop: 4,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
     borderRadius: 8,
-    backgroundColor: "#fff",
-    maxHeight: 180,
+    overflow: "hidden",
   },
   suggestionItem: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
   },
   suggestionTitle: {
     fontSize: 14,
@@ -558,11 +619,9 @@ const styles = StyleSheet.create({
   },
   suggestionMeta: {
     fontSize: 11,
-    color: "#6b7280",
   },
   planButton: {
     marginTop: 2,
-    backgroundColor: "#2563eb",
     borderRadius: 10,
     paddingVertical: 9,
     alignItems: "center",
@@ -574,20 +633,17 @@ const styles = StyleSheet.create({
   },
   mutedText: {
     fontSize: 12,
-    color: "#6b7280",
     marginTop: 4,
     textAlign: "center",
   },
   errorText: {
     fontSize: 12,
-    color: "#b91c1c",
     marginTop: 4,
   },
   itineraryCard: {
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
   },
   itineraryTitle: {
     fontSize: 14,
@@ -600,7 +656,6 @@ const styles = StyleSheet.create({
   },
   itineraryHint: {
     fontSize: 12,
-    color: "#4b5563",
     marginTop: 6,
   },
 
@@ -617,13 +672,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   routeCard: {
-    backgroundColor: "#fff",
     marginBottom: 8,
     borderRadius: 12,
     padding: 10,
     borderLeftWidth: 4,
-    borderLeftColor: "#2563eb",
-    shadowColor: "#000",
     shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
@@ -639,11 +691,9 @@ const styles = StyleSheet.create({
   },
   routeMeta: {
     fontSize: 12,
-    color: "#6b7280",
     marginTop: 2,
   },
   routeChip: {
-    backgroundColor: "#ecfdf3",
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 3,
@@ -651,6 +701,5 @@ const styles = StyleSheet.create({
   routeChipText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#15803d",
   },
 });

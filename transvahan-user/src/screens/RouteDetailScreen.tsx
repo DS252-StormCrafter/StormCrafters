@@ -1,4 +1,3 @@
-
 // transvahan-user/src/screens/RouteDetailScreen.tsx
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -10,17 +9,21 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
+  useColorScheme,
 } from "react-native";
 import MapView, {
   Marker,
   Polyline,
   PROVIDER_GOOGLE,
 } from "react-native-maps";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiClient as client, http } from "../api/client";
 import BusMarker from "../components/BusMarker";
 import haversine from "../utils/haversine";
 import { fetchETAForStop } from "../api/eta";
 import { submitFeedback } from "../api/feedback";
+import { getColors } from "../theme/colors";
 
 type LatLng = { latitude: number; longitude: number };
 
@@ -85,6 +88,9 @@ type FeedbackStageUnreserved =
 
 export default function RouteDetailScreen({ route }: any) {
   const { routeData, color } = route.params;
+  const scheme = useColorScheme();
+  const C = getColors(scheme);
+  const insets = useSafeAreaInsets();
 
   const [stopsTo, setStopsTo] = useState<any[]>([]);
   const [stopsFro, setStopsFro] = useState<any[]>([]);
@@ -92,7 +98,6 @@ export default function RouteDetailScreen({ route }: any) {
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ road-following shape points from backend, cached per direction
   const [shapeTo, setShapeTo] = useState<{ lat: number; lon: number }[] | null>(
     null
   );
@@ -101,7 +106,6 @@ export default function RouteDetailScreen({ route }: any) {
   );
   const [shapeLoading, setShapeLoading] = useState(false);
 
-  // ETA-related state
   const [selectedStop, setSelectedStop] = useState<any | null>(null);
   const [etaLoading, setEtaLoading] = useState(false);
   const [etaError, setEtaError] = useState<string | null>(null);
@@ -111,27 +115,22 @@ export default function RouteDetailScreen({ route }: any) {
     distanceText?: string | null;
   } | null>(null);
 
-  // Reservation-related state
   const [reservationSummary, setReservationSummary] = useState<
     Record<number, number>
   >({});
   const [reservationDest, setReservationDest] = useState<any | null>(null);
   const [reservationSaving, setReservationSaving] = useState(false);
-  const [reservationError, setReservationError] = useState<string | null>(
-    null
-  );
+  const [reservationError, setReservationError] = useState<string | null>(null);
   const [reservationStatus, setReservationStatus] = useState<string | null>(
     null
   );
   const [myReservation, setMyReservation] = useState<any | null>(null);
 
-  // “shuttle arriving at your reserved stop” banner
   const [arrivalAlert, setArrivalAlert] = useState<{
     message: string;
     vehicleLabel: string;
   } | null>(null);
 
-  // ⭐ Feedback state
   const [reservedStage, setReservedStage] =
     useState<FeedbackStageReserved>("none");
   const [unreservedStage, setUnreservedStage] =
@@ -142,11 +141,8 @@ export default function RouteDetailScreen({ route }: any) {
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null);
 
-  // store last position per vehicle to compute heading
   const prevPosRef = useRef<Record<string, LatLng>>({});
   const prevAnyActiveRef = useRef(false);
-
-  // ---------- Helpers for reservation summary + "my reservation" ----------
 
   const refreshReservationSummary = async (
     routeId: string | number,
@@ -164,8 +160,7 @@ export default function RouteDetailScreen({ route }: any) {
         }
       });
       setReservationSummary(bySeq);
-    } catch (err) {
-      console.warn("Error loading reservation summary:", err);
+    } catch {
       setReservationSummary({});
     }
   };
@@ -180,22 +175,16 @@ export default function RouteDetailScreen({ route }: any) {
         { params: { direction: dir } }
       );
       setMyReservation(data || null);
-    } catch (err) {
-      console.warn("Error loading my reservation:", err);
+    } catch {
       setMyReservation(null);
     }
   };
 
-  // 🔹 Load stops for selected route (flattened)
   useEffect(() => {
     (async () => {
       try {
         const { data } = await http.get("/routes/stops/all");
-
-        if (!Array.isArray(data)) {
-          console.warn("Unexpected stops response:", data);
-          return;
-        }
+        if (!Array.isArray(data)) return;
 
         const routeStops = data.filter(
           (s: any) =>
@@ -207,27 +196,20 @@ export default function RouteDetailScreen({ route }: any) {
 
         const toStops = routeStops
           .filter((s: any) => s.direction === "to")
-          .sort(
-            (a: any, b: any) => (a.sequence ?? 0) - (b.sequence ?? 0)
-          );
+          .sort((a: any, b: any) => (a.sequence ?? 0) - (b.sequence ?? 0));
 
         const froStops = routeStops
           .filter((s: any) => s.direction === "fro")
-          .sort(
-            (a: any, b: any) => (a.sequence ?? 0) - (b.sequence ?? 0)
-          );
+          .sort((a: any, b: any) => (a.sequence ?? 0) - (b.sequence ?? 0));
 
         setStopsTo(toStops);
         setStopsFro(froStops);
-      } catch (err) {
-        console.warn("Error loading stops:", err);
       } finally {
         setLoading(false);
       }
     })();
   }, [routeData.id, routeData.name]);
 
-  // 🔹 Load road-following shapes for BOTH directions once per route
   useEffect(() => {
     let cancelled = false;
 
@@ -236,32 +218,13 @@ export default function RouteDetailScreen({ route }: any) {
         const { data } = await http.get(`/routes/${routeData.id}/shape`, {
           params: { direction: dir, force: "1" },
         });
-        if (
-          data &&
-          Array.isArray(data.points) &&
-          data.points.length > 1
-        ) {
-          const clean = data.points.filter(
-            (p: any) =>
-              typeof p.lat === "number" && typeof p.lon === "number"
+        if (data && Array.isArray(data.points) && data.points.length > 1) {
+          return data.points.filter(
+            (p: any) => typeof p.lat === "number" && typeof p.lon === "number"
           );
-          console.log(
-            `✅ Shape for ${routeData.id} (${dir}) points =`,
-            clean.length,
-            "from_cache=",
-            data.from_cache
-          );
-          return clean;
         }
-        console.warn(
-          `⚠️ Shape for ${routeData.id} (${dir}) empty or invalid`
-        );
         return null;
-      } catch (err: any) {
-        console.warn(
-          `❌ Error loading route shape for ${dir}:`,
-          err?.message || err
-        );
+      } catch {
         return null;
       }
     };
@@ -273,18 +236,13 @@ export default function RouteDetailScreen({ route }: any) {
           fetchShapeForDirection("to"),
           fetchShapeForDirection("fro"),
         ]);
-
         if (cancelled) return;
 
         let finalTo = toShape;
         let finalFro = froShape;
 
-        if (!finalTo && finalFro) {
-          finalTo = [...finalFro].slice().reverse();
-        }
-        if (!finalFro && finalTo) {
-          finalFro = [...finalTo].slice().reverse();
-        }
+        if (!finalTo && finalFro) finalTo = [...finalFro].slice().reverse();
+        if (!finalFro && finalTo) finalFro = [...finalTo].slice().reverse();
 
         setShapeTo(finalTo || null);
         setShapeFro(finalFro || null);
@@ -298,7 +256,6 @@ export default function RouteDetailScreen({ route }: any) {
     };
   }, [routeData.id]);
 
-  // 🔹 Load all current drivers (once) + subscribe for live vehicle updates
   useEffect(() => {
     let disconnect: any;
     (async () => {
@@ -311,8 +268,7 @@ export default function RouteDetailScreen({ route }: any) {
         disconnect = await client.subscribeVehicles((msg: any) => {
           if (msg.type === "vehicle" && msg.data) {
             const incoming = normalizeVehicle(msg.data);
-            const key =
-              incoming.vehicle_id || incoming.plateNo || incoming.id;
+            const key = incoming.vehicle_id || incoming.plateNo || incoming.id;
 
             setVehicles((prev: any[]) => {
               const idx = prev.findIndex(
@@ -327,17 +283,12 @@ export default function RouteDetailScreen({ route }: any) {
             });
           }
         });
-      } catch (err) {
-        console.warn("Error loading driver data:", err);
-      }
+      } catch {}
     })();
 
-    return () => {
-      if (disconnect) disconnect();
-    };
+    return () => disconnect && disconnect();
   }, []);
 
-  // 🔹 Subscribe to live reservation + heat updates for this route+direction
   useEffect(() => {
     let disconnect: any;
 
@@ -362,23 +313,16 @@ export default function RouteDetailScreen({ route }: any) {
                 }
               });
               setReservationSummary(bySeq);
-
-              // Also refresh my own reservation state (e.g. when marked boarded/expired)
               refreshMyReservation(routeData.id, direction);
             }
           }
         });
-      } catch (err) {
-        console.warn("Error subscribing to reservation updates:", err);
-      }
+      } catch {}
     })();
 
-    return () => {
-      if (disconnect) disconnect();
-    };
+    return () => disconnect && disconnect();
   }, [routeData.id, direction]);
 
-  // 🔹 Whenever direction changes → refresh reservation summary + my reservation
   useEffect(() => {
     refreshReservationSummary(routeData.id, direction);
     refreshMyReservation(routeData.id, direction);
@@ -393,7 +337,6 @@ export default function RouteDetailScreen({ route }: any) {
     setArrivalAlert(null);
   }, [routeData.id, direction]);
 
-  // Get active direction stops
   const stops = direction === "to" ? stopsTo : stopsFro;
   const validStops = stops.filter(
     (s) =>
@@ -403,7 +346,6 @@ export default function RouteDetailScreen({ route }: any) {
       !isNaN(s.lon)
   );
 
-  // Filter vehicles for this route + direction
   const visibleVehicles = vehicles.filter(
     (v) =>
       String(v.route_id).trim().toLowerCase() ===
@@ -411,12 +353,10 @@ export default function RouteDetailScreen({ route }: any) {
       v.direction?.toLowerCase() === direction.toLowerCase()
   );
 
-  // Only keep vehicles with a non-empty label (fixes the blank bullet)
   const labeledVehicles = visibleVehicles.filter((v) =>
     ((v.vehicle_id || v.plateNo || "").toString().trim().length > 0)
   );
 
-  // 🔔 Watch buses vs my reserved source stop → "arriving soon" banner
   useEffect(() => {
     if (!myReservation) {
       setArrivalAlert(null);
@@ -424,36 +364,18 @@ export default function RouteDetailScreen({ route }: any) {
     }
 
     const srcSeq = Number(myReservation.source_sequence);
-    if (!Number.isFinite(srcSeq)) {
-      setArrivalAlert(null);
-      return;
-    }
+    if (!Number.isFinite(srcSeq)) return;
 
-    const srcStop = stops.find(
-      (s: any) => Number(s.sequence) === srcSeq
-    );
-    if (
-      !srcStop ||
-      typeof srcStop.lat !== "number" ||
-      typeof srcStop.lon !== "number"
-    ) {
-      setArrivalAlert(null);
+    const srcStop = stops.find((s: any) => Number(s.sequence) === srcSeq);
+    if (!srcStop || typeof srcStop.lat !== "number" || typeof srcStop.lon !== "number")
       return;
-    }
 
     let closest: any = null;
     let minDist = Infinity;
 
     labeledVehicles.forEach((v) => {
-      if (
-        String(v.route_id).trim().toLowerCase() !==
-        String(routeData.id).trim().toLowerCase()
-      )
-        return;
-      if ((v.direction || "").toLowerCase() !== direction.toLowerCase())
-        return;
+      if ((v.direction || "").toLowerCase() !== direction.toLowerCase()) return;
       if (typeof v.lat !== "number" || typeof v.lon !== "number") return;
-
       const d = haversine(srcStop.lat, srcStop.lon, v.lat, v.lon);
       if (d < minDist) {
         minDist = d;
@@ -461,21 +383,15 @@ export default function RouteDetailScreen({ route }: any) {
       }
     });
 
-    const ARRIVAL_THRESHOLD_METERS = 120;
-
-    if (closest && minDist <= ARRIVAL_THRESHOLD_METERS) {
-      const label =
-        closest.vehicle_id || closest.plateNo || closest.id || "Bus";
+    if (closest && minDist <= 120) {
+      const label = closest.vehicle_id || closest.plateNo || closest.id || "Bus";
       setArrivalAlert({
         vehicleLabel: label,
         message: `Your shuttle ${label} is arriving at ${srcStop.stop_name}.`,
       });
-    } else {
-      setArrivalAlert(null);
-    }
-  }, [myReservation, labeledVehicles, stops, direction, routeData.id]);
+    } else setArrivalAlert(null);
+  }, [myReservation, labeledVehicles, stops, direction]);
 
-  // 🔔 Reserved user → detect when bus is near their destination stop → trigger feedback flow
   useEffect(() => {
     if (!myReservation) {
       setReservedStage("none");
@@ -485,30 +401,16 @@ export default function RouteDetailScreen({ route }: any) {
     const destSeq = Number(myReservation.dest_sequence);
     if (!Number.isFinite(destSeq)) return;
 
-    const destStop = stops.find(
-      (s: any) => Number(s.sequence) === destSeq
-    );
-    if (
-      !destStop ||
-      typeof destStop.lat !== "number" ||
-      typeof destStop.lon !== "number"
-    ) {
+    const destStop = stops.find((s: any) => Number(s.sequence) === destSeq);
+    if (!destStop || typeof destStop.lat !== "number" || typeof destStop.lon !== "number")
       return;
-    }
 
     let closest: any = null;
     let minDist = Infinity;
 
     labeledVehicles.forEach((v) => {
-      if (
-        String(v.route_id).trim().toLowerCase() !==
-        String(routeData.id).trim().toLowerCase()
-      )
-        return;
-      if ((v.direction || "").toLowerCase() !== direction.toLowerCase())
-        return;
+      if ((v.direction || "").toLowerCase() !== direction.toLowerCase()) return;
       if (typeof v.lat !== "number" || typeof v.lon !== "number") return;
-
       const d = haversine(destStop.lat, destStop.lon, v.lat, v.lon);
       if (d < minDist) {
         minDist = d;
@@ -516,30 +418,15 @@ export default function RouteDetailScreen({ route }: any) {
       }
     });
 
-    const DEST_THRESHOLD_METERS = 80;
-
-    if (
-      closest &&
-      minDist <= DEST_THRESHOLD_METERS &&
-      reservedStage === "none"
-    ) {
-      // Trigger "ride completed?" popup
+    if (closest && minDist <= 80 && reservedStage === "none") {
       setFeedbackStatus(null);
       setFeedbackError(null);
       setFeedbackComment("");
       setFeedbackRating(0);
       setReservedStage("askCompleted");
     }
-  }, [
-    myReservation,
-    labeledVehicles,
-    stops,
-    direction,
-    routeData.id,
-    reservedStage,
-  ]);
+  }, [myReservation, labeledVehicles, stops, direction, reservedStage]);
 
-  // 🔔 Unreserved users → show "Did you take a ride?" only when a new active trip starts
   useEffect(() => {
     const anyActiveNow = labeledVehicles.some((v) => {
       const s = (v.status || "").toLowerCase();
@@ -547,14 +434,12 @@ export default function RouteDetailScreen({ route }: any) {
     });
 
     if (!prevAnyActiveRef.current && anyActiveNow) {
-      // transition idle → running → new session
       setFeedbackStatus(null);
       setFeedbackError(null);
       setFeedbackComment("");
       setFeedbackRating(0);
       setUnreservedStage("askDidRide");
     } else if (!anyActiveNow) {
-      // no active buses → keep popup empty
       setUnreservedStage("none");
     }
 
@@ -563,24 +448,22 @@ export default function RouteDetailScreen({ route }: any) {
 
   if (loading)
     return (
-      <View style={styles.loading}>
+      <View style={[styles.loading, { backgroundColor: C.background }]}>
         <ActivityIndicator color={color} size="large" />
-        <Text>Loading route...</Text>
+        <Text style={{ color: C.text }}>Loading route...</Text>
       </View>
     );
 
   if (!validStops.length)
     return (
-      <View style={styles.loading}>
-        <Text>No stop data found for this route.</Text>
+      <View style={[styles.loading, { backgroundColor: C.background }]}>
+        <Text style={{ color: C.text }}>No stop data found for this route.</Text>
       </View>
     );
 
   const center = validStops[Math.floor(validStops.length / 2)];
   const start = validStops[0];
   const end = validStops[validStops.length - 1];
-
-  // ---------- ETA helpers ----------
 
   const distanceFromStart = (lat: number, lon: number) =>
     haversine(start.lat, start.lon, lat, lon);
@@ -596,8 +479,7 @@ export default function RouteDetailScreen({ route }: any) {
 
     const dStartToBus = distanceFromStart(v.lat, v.lon);
     const dStartToStop = distanceFromStart(stop.lat, stop.lon);
-    const TOL = 40; // meters
-    return dStartToStop + TOL >= dStartToBus;
+    return dStartToStop + 40 >= dStartToBus;
   };
 
   const handleStopPress = async (stop: any) => {
@@ -616,13 +498,11 @@ export default function RouteDetailScreen({ route }: any) {
     const aheadVehicles = labeledVehicles.filter((v) =>
       isStopAheadForVehicle(stop, v)
     );
-
     if (!aheadVehicles.length) {
       setEtaError("All active shuttles have already passed this stop.");
       return;
     }
 
-    // choose nearest ahead vehicle to this stop
     let best = aheadVehicles[0];
     let bestDist = haversine(stop.lat, stop.lon, best.lat, best.lon);
     for (let i = 1; i < aheadVehicles.length; i++) {
@@ -647,8 +527,6 @@ export default function RouteDetailScreen({ route }: any) {
         stop,
       });
 
-      console.log("🧠 ETA raw response:", etaData);
-
       let etaMinRaw: number | null =
         typeof etaData?.predicted_eta_min === "number"
           ? etaData.predicted_eta_min
@@ -657,13 +535,9 @@ export default function RouteDetailScreen({ route }: any) {
           : null;
 
       if (etaMinRaw == null) {
-        if (typeof etaData?.eta_minutes === "number") {
-          etaMinRaw = etaData.eta_minutes;
-        } else if (typeof etaData?.eta_seconds === "number") {
-          etaMinRaw = etaData.eta_seconds / 60;
-        } else if (typeof etaData?.eta_s === "number") {
-          etaMinRaw = etaData.eta_s / 60;
-        }
+        if (typeof etaData?.eta_minutes === "number") etaMinRaw = etaData.eta_minutes;
+        else if (typeof etaData?.eta_seconds === "number") etaMinRaw = etaData.eta_seconds / 60;
+        else if (typeof etaData?.eta_s === "number") etaMinRaw = etaData.eta_s / 60;
       }
 
       if (etaMinRaw == null || !isFinite(etaMinRaw)) {
@@ -676,30 +550,23 @@ export default function RouteDetailScreen({ route }: any) {
             ? `${(etaData.distance_meters / 1000).toFixed(2)} km`
             : null;
 
-        setEtaResult({
-          etaMin: etaMinRaw,
-          vehicleLabel,
-          distanceText,
-        });
+        setEtaResult({ etaMin: etaMinRaw, vehicleLabel, distanceText });
       }
-    } catch (err: any) {
-      console.warn("ETA fetch error:", err);
+    } catch {
       setEtaError("Failed to fetch ETA. Please try again.");
     } finally {
       setEtaLoading(false);
     }
   };
 
-  // ---------- Reservation: confirm handler ----------
   const handleReserveConfirm = async () => {
     if (
       !selectedStop ||
       !reservationDest ||
       typeof selectedStop.sequence !== "number" ||
       typeof reservationDest.sequence !== "number"
-    ) {
+    )
       return;
-    }
 
     if (myReservation) {
       setReservationError(
@@ -728,7 +595,6 @@ export default function RouteDetailScreen({ route }: any) {
       };
 
       await http.post(`/routes/${routeData.id}/reservations`, body);
-
       await refreshReservationSummary(routeData.id, direction);
       await refreshMyReservation(routeData.id, direction);
 
@@ -736,17 +602,14 @@ export default function RouteDetailScreen({ route }: any) {
         `Reserved from ${selectedStop.stop_name} → ${reservationDest.stop_name}`
       );
     } catch (err: any) {
-      console.warn("Reservation create error:", err);
-      const msg =
-        err?.response?.data?.error ||
-        "Failed to create reservation.";
-      setReservationError(msg);
+      setReservationError(
+        err?.response?.data?.error || "Failed to create reservation."
+      );
     } finally {
       setReservationSaving(false);
     }
   };
 
-  // ---------- Reservation: cancel handler ----------
   const handleCancelMyReservation = async () => {
     if (!myReservation) return;
     setReservationSaving(true);
@@ -761,55 +624,42 @@ export default function RouteDetailScreen({ route }: any) {
       setReservationStatus("Your reservation has been cancelled.");
       setReservedStage("none");
     } catch (err: any) {
-      console.warn("Cancel reservation error:", err);
       setReservationError(
-        err?.response?.data?.error ||
-          "Failed to cancel reservation."
+        err?.response?.data?.error || "Failed to cancel reservation."
       );
     } finally {
       setReservationSaving(false);
     }
   };
 
-  // ✅ Robustly pick an active road-following shape for the current direction.
   const pickActiveShape = () => {
     if (direction === "to") {
       if (shapeTo && shapeTo.length > 1) return shapeTo;
-      if (shapeFro && shapeFro.length > 1) return [...shapeFro].slice().reverse();
+      if (shapeFro && shapeFro.length > 1) return [...shapeFro].reverse();
       return null;
     } else {
       if (shapeFro && shapeFro.length > 1) return shapeFro;
-      if (shapeTo && shapeTo.length > 1) return [...shapeTo].slice().reverse();
+      if (shapeTo && shapeTo.length > 1) return [...shapeTo].reverse();
       return null;
     }
   };
 
   const activeShape = pickActiveShape();
-
   const polylineCoords =
     activeShape && activeShape.length > 1
-      ? activeShape.map((p) => ({
-          latitude: p.lat,
-          longitude: p.lon,
-        }))
+      ? activeShape.map((p) => ({ latitude: p.lat, longitude: p.lon }))
       : [];
 
-  // Upcoming stops (for destination selection) – only after the selected stop
   const upcomingStops =
     selectedStop && typeof selectedStop.sequence === "number"
       ? stops.filter(
-          (s) =>
-            typeof s.sequence === "number" &&
-            s.sequence > selectedStop.sequence
+          (s) => typeof s.sequence === "number" && s.sequence > selectedStop.sequence
         )
       : [];
 
-  // Base vehicle occupancy & capacity for occupancy display
   const baseBus = labeledVehicles[0];
-  const baseOcc =
-    typeof baseBus?.occupancy === "number" ? baseBus.occupancy : 0;
-  const baseCap =
-    typeof baseBus?.capacity === "number" ? baseBus.capacity : 0;
+  const baseOcc = typeof baseBus?.occupancy === "number" ? baseBus.occupancy : 0;
+  const baseCap = typeof baseBus?.capacity === "number" ? baseBus.capacity : 0;
 
   const waitingHere =
     selectedStop && typeof selectedStop.sequence === "number"
@@ -818,29 +668,17 @@ export default function RouteDetailScreen({ route }: any) {
 
   const estimatedOcc = baseOcc + waitingHere;
 
-  // ---------- Feedback helpers ----------
-
   const buildFeedbackPayload = (rating: number) => {
-    // For reserved users, try to send vehicle_id; fallback to route_id.
     let vehicleId: string | null = null;
-
     if (myReservation) {
       const vId =
         myReservation.vehicle_id ||
         myReservation.vehicleId ||
         myReservation.bus_id ||
         null;
-      if (vId) {
-        vehicleId = String(vId);
-      }
+      if (vId) vehicleId = String(vId);
     }
-
-    if (!vehicleId) {
-      // Treat this as route-level feedback – backend uses vehicle_id as route_id
-      vehicleId =
-        String(routeData.id || routeData.route_id || "unknown");
-    }
-
+    if (!vehicleId) vehicleId = String(routeData.id || routeData.route_id || "unknown");
     return {
       vehicle_id: vehicleId,
       rating,
@@ -864,29 +702,20 @@ export default function RouteDetailScreen({ route }: any) {
       setFeedbackComment("");
       setFeedbackRating(0);
 
-      if (source === "reserved") {
-        setReservedStage("done");
-      } else {
-        setUnreservedStage("done");
-      }
+      if (source === "reserved") setReservedStage("done");
+      else setUnreservedStage("done");
     } catch (err: any) {
-      console.warn("Feedback submit error:", err);
-      const msg =
+      setFeedbackError(
         err?.response?.data?.error ||
-        "Failed to submit feedback. Please try again.";
-      setFeedbackError(msg);
+          "Failed to submit feedback. Please try again."
+      );
     } finally {
       setFeedbackSubmitting(false);
     }
   };
 
   const handleReservedCompletedAnswer = (completed: boolean) => {
-    if (completed) {
-      setReservedStage("askGoodBad");
-    } else {
-      // Hide until maybe next detection; user can be asked again on next ride.
-      setReservedStage("none");
-    }
+    setReservedStage(completed ? "askGoodBad" : "none");
     setFeedbackStatus(null);
     setFeedbackError(null);
     setFeedbackComment("");
@@ -894,12 +723,7 @@ export default function RouteDetailScreen({ route }: any) {
   };
 
   const handleUnreservedDidRideAnswer = (didRide: boolean) => {
-    if (didRide) {
-      setUnreservedStage("askGoodBad");
-    } else {
-      // "No" → leave popup as empty until the next ride starts
-      setUnreservedStage("none");
-    }
+    setUnreservedStage(didRide ? "askGoodBad" : "none");
     setFeedbackStatus(null);
     setFeedbackError(null);
     setFeedbackComment("");
@@ -908,21 +732,20 @@ export default function RouteDetailScreen({ route }: any) {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: C.background }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={80}
     >
       <View style={styles.container}>
-        {/* Header */}
         <View style={[styles.headerBar, { backgroundColor: color + "22" }]}>
           <Text style={[styles.header, { color }]}>{routeData.name} Line</Text>
         </View>
 
-        {/* Direction Toggle */}
         <View style={styles.toggleRow}>
           <TouchableOpacity
             style={[
               styles.toggleBtn,
+              { borderColor: C.border },
               direction === "to" && { backgroundColor: color },
             ]}
             onPress={() => setDirection("to")}
@@ -936,9 +759,11 @@ export default function RouteDetailScreen({ route }: any) {
               To
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity
             style={[
               styles.toggleBtn,
+              { borderColor: C.border },
               direction === "fro" && { backgroundColor: color },
             ]}
             onPress={() => setDirection("fro")}
@@ -954,7 +779,7 @@ export default function RouteDetailScreen({ route }: any) {
           </TouchableOpacity>
         </View>
 
-        {/* Map (Google provider) */}
+        {/* Map fixed-height so the bottom can scroll */}
         <MapView
           style={styles.map}
           provider={PROVIDER_GOOGLE}
@@ -975,7 +800,6 @@ export default function RouteDetailScreen({ route }: any) {
             />
           )}
 
-          {/* Stop Markers (tap for ETA + reservation) */}
           {validStops.map((s, i) => (
             <Marker
               key={`${s.stop_name}_${i}_${direction}`}
@@ -985,159 +809,132 @@ export default function RouteDetailScreen({ route }: any) {
             />
           ))}
 
-          {/* Vehicle Markers → Bus arrow icon with heading */}
           {labeledVehicles.map((v, i) => {
             if (typeof v.lat !== "number" || typeof v.lon !== "number")
               return null;
 
-            const label =
-              v.vehicle_id || v.plateNo || v.id || `bus_${i}`;
-            const current: LatLng = {
-              latitude: v.lat,
-              longitude: v.lon,
-            };
+            const label = v.vehicle_id || v.plateNo || v.id || `bus_${i}`;
+            const current: LatLng = { latitude: v.lat, longitude: v.lon };
             const prev = prevPosRef.current[label];
             const heading = prev ? computeBearing(prev, current) : 0;
             prevPosRef.current[label] = current;
 
             return (
-              <BusMarker
-                key={`veh_${label}_${i}`}
-                coordinate={current}
-                heading={heading}
-              />
+              <BusMarker key={`veh_${label}_${i}`} coordinate={current} heading={heading} />
             );
           })}
         </MapView>
 
-        {/* Info card */}
-        <View style={styles.card}>
-          <Text style={styles.info}>
+        {/* Scrollable Info Card */}
+        <ScrollView
+          style={[styles.card, { backgroundColor: C.card }]}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={[styles.info, { color: C.text }]}>
             🚌 <Text style={{ fontWeight: "700" }}>Direction:</Text>{" "}
             {start.stop_name} → {end.stop_name}
           </Text>
 
-          {/* Shuttle arriving banner */}
           {arrivalAlert && (
-            <View style={[styles.alertBanner, { borderColor: color }]}>
-              <Text style={styles.alertText}>
+            <View style={[styles.alertBanner, { borderColor: color, backgroundColor: C.warningBg }]}>
+              <Text style={[styles.alertText, { color: C.warningText }]}>
                 🚏 {arrivalAlert.message}
               </Text>
             </View>
           )}
 
           {shapeLoading && (
-            <Text style={styles.info}>
+            <Text style={[styles.info, { color: C.text }]}>
               Building road-following route…
             </Text>
           )}
 
           {labeledVehicles.length > 0 ? (
             labeledVehicles.map((v, idx) => {
-              const label =
-                v.vehicle_id || v.plateNo || v.id || "Bus";
+              const label = v.vehicle_id || v.plateNo || v.id || "Bus";
               return (
-                <Text key={idx} style={styles.info}>
+                <Text key={idx} style={[styles.info, { color: C.text }]}>
                   • {label}: {v.status} — {v.occupancy}/{v.capacity} occupied
                 </Text>
               );
             })
           ) : (
-            <Text style={styles.info}>
+            <Text style={[styles.info, { color: C.text }]}>
               No active buses in this direction.
             </Text>
           )}
 
-          {/* Selected stop + ETA + reservations section */}
+          {/* Selected stop + ETA + reservations */}
           {selectedStop && (
             <View style={{ marginTop: 8 }}>
-              <Text style={styles.info}>
-                📍{" "}
-                <Text style={{ fontWeight: "700" }}>
-                  {selectedStop.stop_name}
-                </Text>
+              <Text style={[styles.info, { color: C.text }]}>
+                📍 <Text style={{ fontWeight: "700" }}>{selectedStop.stop_name}</Text>
               </Text>
 
-              {/* ETA display */}
-              {etaLoading && (
-                <Text style={styles.info}>⏳ Computing ETA…</Text>
-              )}
+              {etaLoading && <Text style={[styles.info, { color: C.text }]}>⏳ Computing ETA…</Text>}
+
               {!etaLoading && etaError && (
-                <Text style={[styles.info, { color: "#b91c1c" }]}>
-                  {etaError}
-                </Text>
+                <Text style={[styles.info, { color: C.danger }]}>{etaError}</Text>
               )}
+
               {!etaLoading && etaResult && (
-                <Text style={styles.info}>
-                  ⏱ ETA:{" "}
-                  {Math.max(
-                    0,
-                    Math.round(etaResult.etaMin * 10) / 10
-                  )}{" "}
-                  min
-                  {etaResult.distanceText
-                    ? ` (${etaResult.distanceText})`
-                    : ""}{" "}
+                <Text style={[styles.info, { color: C.text }]}>
+                  ⏱ ETA: {Math.max(0, Math.round(etaResult.etaMin * 10) / 10)} min
+                  {etaResult.distanceText ? ` (${etaResult.distanceText})` : ""}{" "}
                   (via {etaResult.vehicleLabel})
                 </Text>
               )}
 
-              {/* Actual vs estimated occupancy at this stop */}
-              <Text style={styles.info}>
-                🧍 Actual occupancy (driver): {baseOcc}/
-                {baseCap || "?"}
+              <Text style={[styles.info, { color: C.text }]}>
+                🧍 Actual occupancy (driver): {baseOcc}/{baseCap || "?"}
               </Text>
-              <Text style={styles.info}>
+              <Text style={[styles.info, { color: C.text }]}>
                 🔮 Estimated occupancy at this stop (with reservations):{" "}
                 {estimatedOcc}/{baseCap || "?"}
               </Text>
 
-              {/* Existing reservation info */}
               {myReservation && (
-                <Text style={[styles.info, { marginTop: 4 }]}>
-                  ✅ Your current reservation:{" "}
-                  {myReservation.source_sequence} →{" "}
-                  {myReservation.dest_sequence} (route{" "}
-                  {myReservation.route_id})
+                <Text style={[styles.info, { marginTop: 4, color: C.text }]}>
+                  ✅ Your current reservation: {myReservation.source_sequence} →{" "}
+                  {myReservation.dest_sequence} (route {myReservation.route_id})
                 </Text>
               )}
 
-              {/* Reservation UI */}
               <View style={{ marginTop: 6 }}>
-                <Text style={styles.info}>
+                <Text style={[styles.info, { color: C.text }]}>
                   🪑 Do you want to reserve a seat from this stop?
                 </Text>
+
                 {myReservation && (
                   <Text style={[styles.info, { color: "#b45309" }]}>
-                    You already have an active reservation. You must
-                    cancel it before creating a new one.
+                    You already have an active reservation. You must cancel it
+                    before creating a new one.
                   </Text>
                 )}
+
                 {upcomingStops.length === 0 ? (
-                  <Text style={styles.info}>
+                  <Text style={[styles.info, { color: C.text }]}>
                     No further stops in this direction to reserve.
                   </Text>
                 ) : (
                   <>
-                    <Text
-                      style={[styles.info, { fontWeight: "600" }]}
-                    >
+                    <Text style={[styles.info, { fontWeight: "600", color: C.text }]}>
                       Choose your destination stop:
                     </Text>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        flexWrap: "wrap",
-                      }}
-                    >
+
+                    <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
                       {upcomingStops.map((s: any) => (
                         <TouchableOpacity
                           key={`${s.stop_name}_${s.sequence}_dest`}
                           style={[
                             styles.destChip,
-                            reservationDest?.sequence ===
-                              s.sequence && {
-                              backgroundColor: "#e5e7eb",
+                            {
+                              backgroundColor: C.inputBg,
+                              borderColor: C.border,
+                            },
+                            reservationDest?.sequence === s.sequence && {
+                              backgroundColor: C.border,
                               borderColor: color,
                             },
                           ]}
@@ -1150,6 +947,7 @@ export default function RouteDetailScreen({ route }: any) {
                                 reservationDest?.sequence === s.sequence
                                   ? "700"
                                   : "500",
+                              color: C.text,
                             }}
                           >
                             {s.stop_name}
@@ -1161,29 +959,23 @@ export default function RouteDetailScreen({ route }: any) {
                     <TouchableOpacity
                       style={[
                         styles.reserveButton,
-                        (!reservationDest ||
-                          reservationSaving ||
-                          !!myReservation) && {
+                        { backgroundColor: C.primary },
+                        (!reservationDest || reservationSaving || !!myReservation) && {
                           opacity: 0.6,
                         },
                       ]}
                       disabled={
-                        !reservationDest ||
-                        reservationSaving ||
-                        !!myReservation
+                        !reservationDest || reservationSaving || !!myReservation
                       }
                       onPress={handleReserveConfirm}
                     >
                       <Text style={styles.reserveButtonText}>
-                        {reservationSaving
-                          ? "Saving..."
-                          : "Confirm reservation"}
+                        {reservationSaving ? "Saving..." : "Confirm reservation"}
                       </Text>
                     </TouchableOpacity>
                   </>
                 )}
 
-                {/* Cancel my reservation */}
                 {myReservation && (
                   <TouchableOpacity
                     style={[
@@ -1193,23 +985,17 @@ export default function RouteDetailScreen({ route }: any) {
                     disabled={reservationSaving}
                     onPress={handleCancelMyReservation}
                   >
-                    <Text style={styles.cancelButtonText}>
-                      Cancel my reservation
-                    </Text>
+                    <Text style={styles.cancelButtonText}>Cancel my reservation</Text>
                   </TouchableOpacity>
                 )}
 
                 {reservationError && (
-                  <Text
-                    style={[styles.info, { color: "#b91c1c" }]}
-                  >
+                  <Text style={[styles.info, { color: C.danger }]}>
                     {reservationError}
                   </Text>
                 )}
                 {reservationStatus && (
-                  <Text
-                    style={[styles.info, { color: "#16a34a" }]}
-                  >
+                  <Text style={[styles.info, { color: "#16a34a" }]}>
                     {reservationStatus}
                   </Text>
                 )}
@@ -1217,37 +1003,30 @@ export default function RouteDetailScreen({ route }: any) {
             </View>
           )}
 
-          {/* ⭐ Reserved user post-ride feedback flow */}
+          {/* Reserved feedback */}
           {myReservation && (
-            <View style={styles.feedbackCard}>
-              <Text style={styles.feedbackSectionTitle}>
+            <View style={[styles.feedbackCard, { borderTopColor: C.border }]}>
+              <Text style={[styles.feedbackSectionTitle, { color: C.text }]}>
                 Ride feedback (reserved seat)
               </Text>
 
               {reservedStage === "askCompleted" && (
                 <>
-                  <Text style={styles.feedbackQuestion}>
+                  <Text style={[styles.feedbackQuestion, { color: C.text }]}>
                     Have you completed your reserved ride on this line?
                   </Text>
                   <View style={styles.feedbackRow}>
                     <TouchableOpacity
-                      style={styles.pillButton}
-                      onPress={() =>
-                        handleReservedCompletedAnswer(true)
-                      }
+                      style={[styles.pillButton, { backgroundColor: C.primary }]}
+                      onPress={() => handleReservedCompletedAnswer(true)}
                     >
                       <Text style={styles.pillButtonText}>Yes</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[
-                        styles.pillButton,
-                        styles.pillButtonGhost,
-                      ]}
-                      onPress={() =>
-                        handleReservedCompletedAnswer(false)
-                      }
+                      style={[styles.pillButton, { backgroundColor: C.border }]}
+                      onPress={() => handleReservedCompletedAnswer(false)}
                     >
-                      <Text style={styles.pillButtonGhostText}>
+                      <Text style={[styles.pillButtonGhostText, { color: C.text }]}>
                         Not yet
                       </Text>
                     </TouchableOpacity>
@@ -1257,19 +1036,19 @@ export default function RouteDetailScreen({ route }: any) {
 
               {reservedStage === "askGoodBad" && (
                 <>
-                  <Text style={styles.feedbackQuestion}>
+                  <Text style={[styles.feedbackQuestion, { color: C.text }]}>
                     Was your ride good?
                   </Text>
                   <View style={styles.feedbackRow}>
                     <TouchableOpacity
                       style={styles.thumbButton}
-                      onPress={() =>
-                        submitFeedbackWithRating(1, "reserved")
-                      }
+                      onPress={() => submitFeedbackWithRating(1, "reserved")}
                       disabled={feedbackSubmitting}
                     >
                       <Text style={styles.thumbUp}>👍</Text>
-                      <Text style={styles.thumbLabel}>Yes</Text>
+                      <Text style={[styles.thumbLabel, { color: C.text }]}>
+                        Yes
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.thumbButton}
@@ -1282,7 +1061,9 @@ export default function RouteDetailScreen({ route }: any) {
                       disabled={feedbackSubmitting}
                     >
                       <Text style={styles.thumbDown}>👎</Text>
-                      <Text style={styles.thumbLabel}>No</Text>
+                      <Text style={[styles.thumbLabel, { color: C.text }]}>
+                        No
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 </>
@@ -1290,7 +1071,7 @@ export default function RouteDetailScreen({ route }: any) {
 
               {reservedStage === "askComment" && (
                 <>
-                  <Text style={styles.feedbackQuestion}>
+                  <Text style={[styles.feedbackQuestion, { color: C.text }]}>
                     (Optional) Tell us what could be better.
                   </Text>
                   <TextInput
@@ -1298,31 +1079,30 @@ export default function RouteDetailScreen({ route }: any) {
                     onChangeText={setFeedbackComment}
                     multiline
                     placeholder="Driver behaviour, wait time, bus comfort, crowding…"
-                    style={styles.feedbackInput}
+                    placeholderTextColor={C.mutedText}
+                    style={[
+                      styles.feedbackInput,
+                      {
+                        borderColor: C.border,
+                        backgroundColor: C.inputBg,
+                        color: C.text,
+                      },
+                    ]}
                   />
                   <View style={styles.feedbackRow}>
                     <TouchableOpacity
-                      style={styles.pillButton}
-                      onPress={() =>
-                        submitFeedbackWithRating(-1, "reserved")
-                      }
+                      style={[styles.pillButton, { backgroundColor: C.primary }]}
+                      onPress={() => submitFeedbackWithRating(-1, "reserved")}
                       disabled={feedbackSubmitting}
                     >
-                      <Text style={styles.pillButtonText}>
-                        Submit review
-                      </Text>
+                      <Text style={styles.pillButtonText}>Submit review</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[
-                        styles.pillButton,
-                        styles.pillButtonGhost,
-                      ]}
-                      onPress={() =>
-                        submitFeedbackWithRating(-1, "reserved")
-                      }
+                      style={[styles.pillButton, { backgroundColor: C.border }]}
+                      onPress={() => submitFeedbackWithRating(-1, "reserved")}
                       disabled={feedbackSubmitting}
                     >
-                      <Text style={styles.pillButtonGhostText}>
+                      <Text style={[styles.pillButtonGhostText, { color: C.text }]}>
                         Skip comment
                       </Text>
                     </TouchableOpacity>
@@ -1331,44 +1111,37 @@ export default function RouteDetailScreen({ route }: any) {
               )}
 
               {reservedStage === "done" && feedbackStatus && (
-                <Text style={styles.feedbackThanksText}>
+                <Text style={[styles.feedbackThanksText, { color: "#16a34a" }]}>
                   {feedbackStatus}
                 </Text>
               )}
             </View>
           )}
 
-          {/* ⭐ Unreserved user feedback flow (bottom) */}
+          {/* Unreserved feedback */}
           {!myReservation && unreservedStage !== "none" && (
-            <View style={styles.feedbackCard}>
-              <Text style={styles.feedbackSectionTitle}>
+            <View style={[styles.feedbackCard, { borderTopColor: C.border }]}>
+              <Text style={[styles.feedbackSectionTitle, { color: C.text }]}>
                 Ride feedback
               </Text>
 
               {unreservedStage === "askDidRide" && (
                 <>
-                  <Text style={styles.feedbackQuestion}>
+                  <Text style={[styles.feedbackQuestion, { color: C.text }]}>
                     Did you take a ride on this line recently?
                   </Text>
                   <View style={styles.feedbackRow}>
                     <TouchableOpacity
-                      style={styles.pillButton}
-                      onPress={() =>
-                        handleUnreservedDidRideAnswer(true)
-                      }
+                      style={[styles.pillButton, { backgroundColor: C.primary }]}
+                      onPress={() => handleUnreservedDidRideAnswer(true)}
                     >
                       <Text style={styles.pillButtonText}>Yes</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[
-                        styles.pillButton,
-                        styles.pillButtonGhost,
-                      ]}
-                      onPress={() =>
-                        handleUnreservedDidRideAnswer(false)
-                      }
+                      style={[styles.pillButton, { backgroundColor: C.border }]}
+                      onPress={() => handleUnreservedDidRideAnswer(false)}
                     >
-                      <Text style={styles.pillButtonGhostText}>
+                      <Text style={[styles.pillButtonGhostText, { color: C.text }]}>
                         No
                       </Text>
                     </TouchableOpacity>
@@ -1378,19 +1151,19 @@ export default function RouteDetailScreen({ route }: any) {
 
               {unreservedStage === "askGoodBad" && (
                 <>
-                  <Text style={styles.feedbackQuestion}>
+                  <Text style={[styles.feedbackQuestion, { color: C.text }]}>
                     Was your ride good?
                   </Text>
                   <View style={styles.feedbackRow}>
                     <TouchableOpacity
                       style={styles.thumbButton}
-                      onPress={() =>
-                        submitFeedbackWithRating(1, "unreserved")
-                      }
+                      onPress={() => submitFeedbackWithRating(1, "unreserved")}
                       disabled={feedbackSubmitting}
                     >
                       <Text style={styles.thumbUp}>👍</Text>
-                      <Text style={styles.thumbLabel}>Yes</Text>
+                      <Text style={[styles.thumbLabel, { color: C.text }]}>
+                        Yes
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.thumbButton}
@@ -1403,7 +1176,9 @@ export default function RouteDetailScreen({ route }: any) {
                       disabled={feedbackSubmitting}
                     >
                       <Text style={styles.thumbDown}>👎</Text>
-                      <Text style={styles.thumbLabel}>No</Text>
+                      <Text style={[styles.thumbLabel, { color: C.text }]}>
+                        No
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 </>
@@ -1411,7 +1186,7 @@ export default function RouteDetailScreen({ route }: any) {
 
               {unreservedStage === "askComment" && (
                 <>
-                  <Text style={styles.feedbackQuestion}>
+                  <Text style={[styles.feedbackQuestion, { color: C.text }]}>
                     (Optional) Tell us what could be better.
                   </Text>
                   <TextInput
@@ -1419,31 +1194,30 @@ export default function RouteDetailScreen({ route }: any) {
                     onChangeText={setFeedbackComment}
                     multiline
                     placeholder="Driver behaviour, wait time, bus comfort, crowding…"
-                    style={styles.feedbackInput}
+                    placeholderTextColor={C.mutedText}
+                    style={[
+                      styles.feedbackInput,
+                      {
+                        borderColor: C.border,
+                        backgroundColor: C.inputBg,
+                        color: C.text,
+                      },
+                    ]}
                   />
                   <View style={styles.feedbackRow}>
                     <TouchableOpacity
-                      style={styles.pillButton}
-                      onPress={() =>
-                        submitFeedbackWithRating(-1, "unreserved")
-                      }
+                      style={[styles.pillButton, { backgroundColor: C.primary }]}
+                      onPress={() => submitFeedbackWithRating(-1, "unreserved")}
                       disabled={feedbackSubmitting}
                     >
-                      <Text style={styles.pillButtonText}>
-                        Submit review
-                      </Text>
+                      <Text style={styles.pillButtonText}>Submit review</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[
-                        styles.pillButton,
-                        styles.pillButtonGhost,
-                      ]}
-                      onPress={() =>
-                        submitFeedbackWithRating(-1, "unreserved")
-                      }
+                      style={[styles.pillButton, { backgroundColor: C.border }]}
+                      onPress={() => submitFeedbackWithRating(-1, "unreserved")}
                       disabled={feedbackSubmitting}
                     >
-                      <Text style={styles.pillButtonGhostText}>
+                      <Text style={[styles.pillButtonGhostText, { color: C.text }]}>
                         Skip comment
                       </Text>
                     </TouchableOpacity>
@@ -1452,32 +1226,33 @@ export default function RouteDetailScreen({ route }: any) {
               )}
 
               {unreservedStage === "done" && feedbackStatus && (
-                <Text style={styles.feedbackThanksText}>
+                <Text style={[styles.feedbackThanksText, { color: "#16a34a" }]}>
                   {feedbackStatus}
                 </Text>
               )}
             </View>
           )}
 
-          {/* Shared feedback error */}
           {feedbackError && (
-            <Text style={[styles.info, { color: "#b91c1c" }]}>
+            <Text style={[styles.info, { color: C.danger }]}>
               {feedbackError}
             </Text>
           )}
-        </View>
+        </ScrollView>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb" },
+  container: { flex: 1 },
   headerBar: { padding: 12, alignItems: "center" },
   header: { fontSize: 22, fontWeight: "700" },
-  map: { flex: 1 },
+
+  map: { height: "45%", width: "100%" }, // ✅ keeps map visible; rest scrolls
+
   card: {
-    backgroundColor: "#fff",
+    flex: 1,
     padding: 12,
     borderRadius: 10,
     margin: 10,
@@ -1486,6 +1261,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
   },
+
   info: { fontSize: 14, marginBottom: 4 },
   loading: { flex: 1, alignItems: "center", justifyContent: "center" },
   toggleRow: {
@@ -1496,7 +1272,6 @@ const styles = StyleSheet.create({
   toggleBtn: {
     borderWidth: 1.5,
     borderRadius: 20,
-    borderColor: "#999",
     paddingVertical: 6,
     paddingHorizontal: 18,
     marginHorizontal: 6,
@@ -1507,17 +1282,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#d1d5db",
     marginRight: 6,
     marginTop: 4,
-    backgroundColor: "#f3f4f6",
   },
   reserveButton: {
     marginTop: 8,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: "#2563eb",
     alignSelf: "flex-start",
   },
   reserveButtonText: {
@@ -1545,20 +1317,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
-    backgroundColor: "#fef3c7",
   },
   alertText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#92400e",
   },
 
-  // Feedback UI
   feedbackCard: {
     marginTop: 12,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
   },
   feedbackSectionTitle: {
     fontSize: 14,
@@ -1578,7 +1346,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "#2563eb",
     marginRight: 8,
   },
   pillButtonText: {
@@ -1586,11 +1353,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 13,
   },
-  pillButtonGhost: {
-    backgroundColor: "#e5e7eb",
-  },
   pillButtonGhostText: {
-    color: "#374151",
     fontWeight: "500",
     fontSize: 13,
   },
@@ -1609,7 +1372,6 @@ const styles = StyleSheet.create({
   thumbLabel: { fontSize: 13, fontWeight: "500" },
   feedbackInput: {
     borderWidth: 1,
-    borderColor: "#e5e7eb",
     borderRadius: 8,
     padding: 8,
     minHeight: 60,
@@ -1619,7 +1381,6 @@ const styles = StyleSheet.create({
   },
   feedbackThanksText: {
     fontSize: 13,
-    color: "#16a34a",
     marginTop: 4,
   },
 });

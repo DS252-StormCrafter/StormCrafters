@@ -1,3 +1,4 @@
+// transvahan-user/src/types/index.ts
 export type User = { id: string; name: string; email: string; role: 'user' };
 export type Stop = { id: string; name: string; lat: number; lng: number; };
 export type Route = { id: string; name: string; stops: Stop[]; schedule: string[] };

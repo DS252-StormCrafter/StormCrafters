@@ -1,10 +1,16 @@
 // transvahan-user/src/navigation/index.tsx
 import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  DefaultTheme,
+  DarkTheme,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
+import { useColorScheme } from "react-native";
 import { useAuth } from "../auth/authContext";
+import { getColors } from "../theme/colors";
 
 import RoleSelect from "../screens/RoleSelect";
 import SignupScreen from "../screens/SignupScreen";
@@ -31,42 +37,34 @@ import UserAlertsTab from "../screens/UserAlertsTab";
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-
 /* -------------------- User Tabs -------------------- */
 function HomeTabs() {
+  const scheme = useColorScheme();
+  const C = getColors(scheme);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: "#2563eb",
+        tabBarActiveTintColor: C.primary,
+        tabBarInactiveTintColor: C.mutedText,
+        tabBarStyle: {
+          backgroundColor: C.tabBarBg,
+          borderTopColor: C.border,
+        },
         tabBarIcon: ({ color, size }) => {
           if (route.name === "Routes")
-            return (
-              <Ionicons name="map" size={size} color={color} />
-            );
+            return <Ionicons name="map" size={size} color={color} />;
           if (route.name === "Schedules")
-            return (
-              <Ionicons name="list" size={size} color={color} />
-            );
+            return <Ionicons name="list" size={size} color={color} />;
           if (route.name === "Alerts")
             return (
-              <Ionicons
-                name="alert-circle"
-                size={size}
-                color={color}
-              />
+              <Ionicons name="alert-circle" size={size} color={color} />
             );
-          return (
-            <Ionicons
-              name="settings"
-              size={size}
-              color={color}
-            />
-          );
+          return <Ionicons name="settings" size={size} color={color} />;
         },
       })}
     >
-      {/* Routes tab now includes search + itinerary + route cards */}
       <Tab.Screen name="Routes" component={RouteSelectorTab} />
       <Tab.Screen name="Schedules" component={ScheduleTab} />
       <Tab.Screen name="Alerts" component={UserAlertsTab} />
@@ -77,47 +75,35 @@ function HomeTabs() {
 
 /* -------------------- Driver Tabs -------------------- */
 function DriverTabs() {
+  const scheme = useColorScheme();
+  const C = getColors(scheme);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: "#16a34a",
+        tabBarInactiveTintColor: C.mutedText,
+        tabBarStyle: {
+          backgroundColor: C.tabBarBg,
+          borderTopColor: C.border,
+        },
         tabBarIcon: ({ color, size }) => {
           if (route.name === "DriverMap")
-            return (
-              <Ionicons name="map" size={size} color={color} />
-            );
+            return <Ionicons name="map" size={size} color={color} />;
           if (route.name === "Occupancy")
-            return (
-              <Ionicons
-                name="people"
-                size={size}
-                color={color}
-              />
-            );
+            return <Ionicons name="people" size={size} color={color} />;
           if (route.name === "Alerts")
             return (
-              <Ionicons
-                name="alert-circle"
-                size={size}
-                color={color}
-              />
+              <Ionicons name="alert-circle" size={size} color={color} />
             );
-          return (
-            <Ionicons
-              name="settings"
-              size={size}
-              color={color}
-            />
-          );
+          return <Ionicons name="settings" size={size} color={color} />;
         },
       })}
     >
       <Tab.Screen
         name="Dashboard"
-        component={
-          require("../screens/DriverDashboardTab").default
-        }
+        component={require("../screens/DriverDashboardTab").default}
       />
       <Tab.Screen name="Occupancy" component={DriverOccupancyTab} />
       <Tab.Screen name="Alerts" component={DriverAlertsTab} />
@@ -129,67 +115,31 @@ function DriverTabs() {
 /* -------------------- Root Navigation -------------------- */
 export default function AppNav() {
   const { user, isDriver } = useAuth();
+  const scheme = useColorScheme();
 
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={scheme === "dark" ? DarkTheme : DefaultTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!user ? (
           <>
-            <Stack.Screen
-              name="RoleSelect"
-              component={RoleSelect}
-            />
-            <Stack.Screen
-              name="Signup"
-              component={SignupScreen}
-            />
-            <Stack.Screen
-              name="VerifyOtp"
-              component={VerifyOtpScreen}
-            />
-            <Stack.Screen
-              name="Login"
-              component={LoginScreen}
-            />
-            {/* ✅ NEW: User-only forgot/reset password flow */}
-            <Stack.Screen
-              name="ForgotPassword"
-              component={ForgotPasswordScreen}
-            />
-            <Stack.Screen
-              name="ResetPassword"
-              component={ResetPasswordScreen}
-            />
-            <Stack.Screen
-              name="DriverLogin"
-              component={DriverLogin}
-            />
+            <Stack.Screen name="RoleSelect" component={RoleSelect} />
+            <Stack.Screen name="Signup" component={SignupScreen} />
+            <Stack.Screen name="VerifyOtp" component={VerifyOtpScreen} />
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+            <Stack.Screen name="DriverLogin" component={DriverLogin} />
           </>
         ) : isDriver ? (
           <>
-            <Stack.Screen
-              name="DriverTabs"
-              component={DriverTabs}
-            />
+            <Stack.Screen name="DriverTabs" component={DriverTabs} />
           </>
         ) : (
           <>
-            <Stack.Screen
-              name="HomeTabs"
-              component={HomeTabs}
-            />
-            <Stack.Screen
-              name="RouteMap"
-              component={RouteMapScreen}
-            />
-            <Stack.Screen
-              name="Feedback"
-              component={FeedbackScreen}
-            />
-            <Stack.Screen
-              name="RouteDetail"
-              component={RouteDetailScreen}
-            />
+            <Stack.Screen name="HomeTabs" component={HomeTabs} />
+            <Stack.Screen name="RouteMap" component={RouteMapScreen} />
+            <Stack.Screen name="Feedback" component={FeedbackScreen} />
+            <Stack.Screen name="RouteDetail" component={RouteDetailScreen} />
           </>
         )}
       </Stack.Navigator>
