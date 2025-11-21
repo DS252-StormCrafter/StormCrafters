@@ -11,6 +11,8 @@ import SignupScreen from "../screens/SignupScreen";
 import VerifyOtpScreen from "../screens/VerifyOTPScreen";
 import LoginScreen from "../screens/LoginScreen";
 import DriverLogin from "../screens/DriverLogin";
+import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
+import ResetPasswordScreen from "../screens/ResetPasswordScreen";
 import RouteMapScreen from "../screens/RouteMapScreen";
 import FeedbackScreen from "../screens/FeedbackScreen";
 import SettingsScreen from "../screens/SettingsScreen";
@@ -28,6 +30,7 @@ import UserAlertsTab from "../screens/UserAlertsTab";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
 
 /* -------------------- User Tabs -------------------- */
 function HomeTabs() {
@@ -147,6 +150,15 @@ export default function AppNav() {
             <Stack.Screen
               name="Login"
               component={LoginScreen}
+            />
+            {/* ✅ NEW: User-only forgot/reset password flow */}
+            <Stack.Screen
+              name="ForgotPassword"
+              component={ForgotPasswordScreen}
+            />
+            <Stack.Screen
+              name="ResetPassword"
+              component={ResetPasswordScreen}
             />
             <Stack.Screen
               name="DriverLogin"

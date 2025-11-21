@@ -1,10 +1,7 @@
-// transvahan-user/src/screens/SignupScreen.tsx
 import React, { useState } from "react";
 import { View, Text, TextInput, Pressable, Alert, StyleSheet } from "react-native";
-import type { ViewStyle, TextStyle } from "react-native";
 import axios from "axios";
 import Constants from "expo-constants";
-import * as Crypto from "expo-crypto";
 
 const API = Constants.expoConfig?.extra?.API_BASE_URL;
 
@@ -12,16 +9,15 @@ export default function SignupScreen({ navigation }: any) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const hashPassword = async (plain: string) =>
-    await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, plain);
 
   const validateEmail = (val: string) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim());
 
   const onSignup = async () => {
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !confirm) {
       Alert.alert("⚠️ Missing Fields", "Please fill all fields.");
       return;
     }
@@ -33,23 +29,23 @@ export default function SignupScreen({ navigation }: any) {
       Alert.alert("⚠️ Weak Password", "Password must be at least 6 characters long.");
       return;
     }
+    if (password !== confirm) {
+      Alert.alert("⚠️ Password mismatch", "Passwords do not match.");
+      return;
+    }
 
     try {
       setLoading(true);
-      const passwordHash = await hashPassword(password);
-      console.log("➡️ Signup Request:", `${API}/auth/signup`);
 
-      const res = await axios.post(`${API}/auth/signup`, {
-        name,
-        email,
-        passwordHash,
+      await axios.post(`${API}/auth/signup`, {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password, // plaintext
       });
 
-      console.log("✅ Signup Success:", res.data);
       Alert.alert("📩 OTP Sent", "Please verify the OTP sent to your email.");
-      navigation.replace("VerifyOtp", { email });
+      navigation.replace("VerifyOtp", { email: email.trim().toLowerCase() });
     } catch (err: any) {
-      console.log("❌ Signup Error:", err?.response?.data ?? err);
       Alert.alert("Signup failed", err?.response?.data?.error ?? "Try again later.");
     } finally {
       setLoading(false);
@@ -58,14 +54,11 @@ export default function SignupScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, justifyContent: "center", padding: 24, gap: 12 }}>
-      <Text style={{ fontSize: 28, fontWeight: "800", marginBottom: 12 }}>Create Account</Text>
+      <Text style={{ fontSize: 28, fontWeight: "800", marginBottom: 12 }}>
+        Create Account
+      </Text>
 
-      <TextInput
-        value={name}
-        onChangeText={setName}
-        placeholder="Full Name"
-        style={styles.input}
-      />
+      <TextInput value={name} onChangeText={setName} placeholder="Full Name" style={styles.input} />
 
       <TextInput
         value={email}
@@ -80,15 +73,25 @@ export default function SignupScreen({ navigation }: any) {
         value={password}
         onChangeText={setPassword}
         placeholder="Password"
-        secureTextEntry
+        secureTextEntry={!showPassword}
         style={styles.input}
       />
 
-      <Pressable
-        onPress={onSignup}
-        disabled={loading}
-        style={[styles.btn, { opacity: loading ? 0.6 : 1 }]}
-      >
+      <TextInput
+        value={confirm}
+        onChangeText={setConfirm}
+        placeholder="Confirm Password"
+        secureTextEntry={!showPassword}
+        style={styles.input}
+      />
+
+      <Pressable onPress={() => setShowPassword((v) => !v)}>
+        <Text style={{ color: "#2563eb", fontWeight: "600" }}>
+          {showPassword ? "Hide Password" : "Show Password"}
+        </Text>
+      </Pressable>
+
+      <Pressable onPress={onSignup} disabled={loading} style={[styles.btn, { opacity: loading ? 0.6 : 1 }]}>
         <Text style={styles.btnText}>{loading ? "Signing Up…" : "Sign Up"}</Text>
       </Pressable>
 
@@ -100,11 +103,8 @@ export default function SignupScreen({ navigation }: any) {
     </View>
   );
 }
-const styles = StyleSheet.create<{
-  input: ViewStyle;
-  btn: ViewStyle;
-  btnText: TextStyle;
-}>({
+
+const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: "#e5e7eb",

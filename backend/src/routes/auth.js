@@ -1,4 +1,3 @@
-// backend/src/routes/auth.js
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
@@ -15,29 +14,48 @@ export default function authRoutes(db) {
     auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
   });
 
+  const JWT_SECRET = process.env.JWT_SECRET || "secret";
+  const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10); // you can bump to 12 later
+
+  const normEmail = (e) => (e || "").toString().trim().toLowerCase();
+
   // =========================================================
   // =============== USER SIGNUP =============================
   // =========================================================
   router.post("/signup", async (req, res) => {
-    console.log("📥 /auth/signup request received at:", new Date().toISOString());
-    console.log("Payload:", req.body);
     try {
-      const { email, name, password } = req.body;
+      const { email, name, password, passwordHash } = req.body;
 
-      if (!password)
-        return res.status(400).json({ error: "Password is required" });
+      if (passwordHash) {
+        return res.status(400).json({
+          error: "Do not send passwordHash. Send plaintext password over HTTPS.",
+        });
+      }
 
-      const userRef = db.collection("users").doc(email);
+      const emailNorm = normEmail(email);
+      const nameNorm = (name || "").toString().trim();
+
+      if (!emailNorm || !nameNorm || !password) {
+        return res
+          .status(400)
+          .json({ error: "email, name, and password are required" });
+      }
+
+      // prevent leaking passwords in logs
+      console.log("📥 /auth/signup:", emailNorm);
+
+      const userRef = db.collection("users").doc(emailNorm);
       const existing = await userRef.get();
-      if (existing.exists)
+      if (existing.exists) {
         return res.status(400).json({ error: "User already exists" });
+      }
 
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
       await userRef.set({
-        email,
-        name,
+        email: emailNorm,
+        name: nameNorm,
         passwordHash: hashedPassword,
         role: "user",
         verified: false,
@@ -48,22 +66,18 @@ export default function authRoutes(db) {
       if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
         await transporter.sendMail({
           from: process.env.EMAIL_USER,
-          to: email,
+          to: emailNorm,
           subject: "Transvahan OTP Verification",
           text: `Your OTP is ${otp}`,
         });
       } else {
-        console.log(`📩 OTP for ${email}: ${otp} (email not configured)`);
+        console.log(`📩 OTP for ${emailNorm}: ${otp} (email not configured)`);
       }
 
-      console.log(
-        `✅ User saved in Firestore (${process.env.FIRESTORE_EMULATOR_HOST ? "Emulator" : "Live"}): ${email}`
-      );
-
-      res.json({ message: "User registered. Please verify OTP." });
+      return res.json({ message: "User registered. Please verify OTP." });
     } catch (err) {
       console.error("Signup error:", err);
-      res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -73,7 +87,9 @@ export default function authRoutes(db) {
   router.post("/verify-otp", async (req, res) => {
     const { email, otp } = req.body;
     try {
-      const userRef = db.collection("users").doc(email);
+      const emailNorm = normEmail(email);
+
+      const userRef = db.collection("users").doc(emailNorm);
       const snap = await userRef.get();
       if (!snap.exists)
         return res.status(400).json({ error: "User not found" });
@@ -82,11 +98,156 @@ export default function authRoutes(db) {
         return res.status(400).json({ error: "Invalid OTP" });
 
       await userRef.update({ verified: true, otp: null });
-      console.log(`✅ OTP verified for ${email}`);
-      res.json({ message: "OTP verified. You can now login." });
+      console.log(`✅ OTP verified for ${emailNorm}`);
+      return res.json({ message: "OTP verified. You can now login." });
     } catch (err) {
       console.error("Verify OTP error:", err);
-      res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =========================================================
+  // =============== FORGOT PASSWORD (SEND OTP) ==============
+  // =========================================================
+
+  // very small in-memory rate limiter (per server instance)
+  const RESET_RATE = new Map(); 
+  const RESET_COOLDOWN_MS = 60 * 1000;       // 1 min between requests
+  const RESET_MAX_PER_HOUR = 5;              // max 5 OTPs/hour per email
+  const RESET_WINDOW_MS = 60 * 60 * 1000;
+
+  function canSendReset(emailNorm) {
+    const now = Date.now();
+    const entry = RESET_RATE.get(emailNorm) || { lastSent: 0, count: 0, windowStart: now };
+
+    // reset window
+    if (now - entry.windowStart > RESET_WINDOW_MS) {
+      entry.windowStart = now;
+      entry.count = 0;
+    }
+
+    // cooldown
+    if (now - entry.lastSent < RESET_COOLDOWN_MS) return false;
+
+    // hourly cap
+    if (entry.count >= RESET_MAX_PER_HOUR) return false;
+
+    entry.lastSent = now;
+    entry.count += 1;
+    RESET_RATE.set(emailNorm, entry);
+    return true;
+  }
+
+  router.post("/forgot-password", async (req, res) => {
+    try {
+      const emailNorm = normEmail(req.body.email);
+
+      // Always return generic success to prevent email fishing
+      const genericOk = () =>
+        res.json({
+          message:
+            "If an account with that email exists, a reset code has been sent.",
+        });
+
+      if (!emailNorm) return genericOk();
+
+      if (!canSendReset(emailNorm)) {
+        // still generic to avoid leaking existence
+        return genericOk();
+      }
+
+      const userRef = db.collection("users").doc(emailNorm);
+      const snap = await userRef.get();
+      if (!snap.exists) return genericOk();
+
+      const user = snap.data();
+      if (!user?.verified) return genericOk();
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpHash = await bcrypt.hash(otp, BCRYPT_ROUNDS);
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min
+
+      await userRef.update({
+        resetOtpHash: otpHash,
+        resetOtpExpiresAt: expiresAt,
+        resetOtpUsedAt: null,
+      });
+
+      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        await transporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: emailNorm,
+          subject: "Transvahan Password Reset Code",
+          text: `Your password reset OTP is ${otp}. It expires in 15 minutes.`,
+        });
+      } else {
+        console.log(`📩 RESET OTP for ${emailNorm}: ${otp} (email not configured)`);
+      }
+
+      return genericOk();
+    } catch (err) {
+      console.error("Forgot password error:", err);
+      // still generic
+      return res.json({
+        message: "If an account with that email exists, a reset code has been sent.",
+      });
+    }
+  });
+
+
+  // =========================================================
+  // =============== RESET PASSWORD (VERIFY OTP) =============
+  // =========================================================
+  router.post("/reset-password", async (req, res) => {
+    try {
+      const emailNorm = normEmail(req.body.email);
+      const { otp, newPassword, confirmPassword, passwordHash } = req.body;
+
+      if (passwordHash) {
+        return res.status(400).json({
+          error: "Do not send passwordHash. Send plaintext password over HTTPS.",
+        });
+      }
+      if (!emailNorm || !otp || !newPassword) {
+        return res.status(400).json({ error: "Missing fields." });
+      }
+      if (confirmPassword !== undefined && newPassword !== confirmPassword) {
+        return res.status(400).json({ error: "Passwords do not match." });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 chars." });
+      }
+
+      const userRef = db.collection("users").doc(emailNorm);
+      const snap = await userRef.get();
+      if (!snap.exists) {
+        return res.status(400).json({ error: "Invalid OTP or expired." });
+      }
+
+      const user = snap.data();
+      const exp = user.resetOtpExpiresAt ? new Date(user.resetOtpExpiresAt).getTime() : 0;
+      if (!user.resetOtpHash || !exp || Date.now() > exp) {
+        return res.status(400).json({ error: "Invalid OTP or expired." });
+      }
+
+      const ok = await bcrypt.compare(otp.toString(), user.resetOtpHash);
+      if (!ok) {
+        return res.status(400).json({ error: "Invalid OTP or expired." });
+      }
+
+      const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+      await userRef.update({
+        passwordHash: newHash,
+        resetOtpHash: null,
+        resetOtpExpiresAt: null,
+        resetOtpUsedAt: new Date().toISOString(),
+      });
+
+      return res.json({ message: "Password reset successful. Please login." });
+    } catch (err) {
+      console.error("Reset password error:", err);
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -94,9 +255,22 @@ export default function authRoutes(db) {
   // =============== USER LOGIN ==============================
   // =========================================================
   router.post("/login", async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password, passwordHash } = req.body;
     try {
-      const userRef = db.collection("users").doc(email);
+      if (passwordHash) {
+        return res.status(400).json({
+          error: "Do not send passwordHash. Send plaintext password over HTTPS.",
+        });
+      }
+
+      const emailNorm = normEmail(email);
+      if (!emailNorm || !password) {
+        return res
+          .status(400)
+          .json({ error: "Email and password are required" });
+      }
+
+      const userRef = db.collection("users").doc(emailNorm);
       const snap = await userRef.get();
       if (!snap.exists)
         return res.status(400).json({ error: "User not found" });
@@ -110,19 +284,19 @@ export default function authRoutes(db) {
         return res.status(403).json({ error: "Invalid credentials" });
 
       const token = jwt.sign(
-        { uid: email, role: user.role },
-        process.env.JWT_SECRET || "secret",
+        { uid: emailNorm, role: user.role },
+        JWT_SECRET,
         { expiresIn: "7d" }
       );
 
-      console.log(`✅ User ${email} logged in successfully`);
-      res.json({
+      console.log(`✅ User ${emailNorm} logged in`);
+      return res.json({
         token,
-        user: { email, name: user.name, role: user.role },
+        user: { email: emailNorm, name: user.name, role: user.role },
       });
     } catch (err) {
       console.error("Login error:", err);
-      res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -130,44 +304,55 @@ export default function authRoutes(db) {
   // =============== ADMIN LOGIN =============================
   // =========================================================
   router.post("/admin/login", async (req, res) => {
-    const { email, password } = req.body;
-    console.log("🟡 Admin login attempt:", email);
+    const { email, password, passwordHash } = req.body;
 
     try {
+      if (passwordHash) {
+        return res.status(400).json({
+          error: "Do not send passwordHash. Send plaintext password over HTTPS.",
+        });
+      }
+
+      const emailNorm = normEmail(email);
+      if (!emailNorm || !password) {
+        return res
+          .status(400)
+          .json({ error: "Email and password are required" });
+      }
+
+      console.log("🟡 Admin login attempt:", emailNorm);
+
       const snap = await db
         .collection("admins")
-        .where("email", "==", email)
+        .where("email", "==", emailNorm)
         .limit(1)
         .get();
 
       if (snap.empty) {
-        console.log("❌ Admin not found in Firestore");
         return res.status(400).json({ error: "Admin not found" });
       }
 
       const adminDoc = snap.docs[0];
       const admin = adminDoc.data();
 
+      // admin.password MUST be bcrypt hash
       const match = await bcrypt.compare(password, admin.password);
-      console.log("🔍 Password match result:", match);
-
       if (!match)
         return res.status(403).json({ error: "Invalid credentials" });
 
       const token = jwt.sign(
         { id: adminDoc.id, email: admin.email, role: "admin" },
-        process.env.JWT_SECRET || "secret",
+        JWT_SECRET,
         { expiresIn: "7d" }
       );
 
-      console.log("✅ Admin token generated successfully");
-      res.json({
+      return res.json({
         token,
         user: { email: admin.email, role: "admin" },
       });
     } catch (err) {
       console.error("Admin login error:", err);
-      res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -175,44 +360,55 @@ export default function authRoutes(db) {
   // =============== DRIVER LOGIN =============================
   // =========================================================
   router.post("/driver/login", async (req, res) => {
-    const { email, password } = req.body;
-    console.log("🟡 Driver login attempt:", email);
+    const { email, password, passwordHash } = req.body;
 
     try {
+      if (passwordHash) {
+        return res.status(400).json({
+          error: "Do not send passwordHash. Send plaintext password over HTTPS.",
+        });
+      }
+
+      const emailNorm = normEmail(email);
+      if (!emailNorm || !password) {
+        return res
+          .status(400)
+          .json({ error: "Email and password are required" });
+      }
+
+      console.log("🟡 Driver login attempt:", emailNorm);
+
       const snap = await db
         .collection("drivers")
-        .where("email", "==", email)
+        .where("email", "==", emailNorm)
         .limit(1)
         .get();
 
       if (snap.empty) {
-        console.log("❌ Driver not found in Firestore");
         return res.status(400).json({ error: "Driver not found" });
       }
 
       const driverDoc = snap.docs[0];
       const driver = driverDoc.data();
 
+      // driver.password MUST be bcrypt hash
       const match = await bcrypt.compare(password, driver.password);
-      console.log("🔍 Password match result:", match);
-
       if (!match)
         return res.status(403).json({ error: "Invalid credentials" });
 
       const token = jwt.sign(
         { id: driverDoc.id, email: driver.email, role: "driver" },
-        process.env.JWT_SECRET || "secret",
+        JWT_SECRET,
         { expiresIn: "7d" }
       );
 
-      console.log("✅ Driver logged in successfully");
-      res.json({
+      return res.json({
         token,
         user: { email: driver.email, role: "driver", name: driver.name },
       });
     } catch (err) {
       console.error("Driver login error:", err);
-      res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 

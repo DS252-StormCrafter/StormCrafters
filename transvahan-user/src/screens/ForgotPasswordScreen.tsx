@@ -2,41 +2,32 @@ import React, { useState } from "react";
 import { View, Text, TextInput, Pressable, Alert } from "react-native";
 import axios from "axios";
 import Constants from "expo-constants";
-import { useAuth } from "../auth/authContext";
 
 const API = Constants.expoConfig?.extra?.API_BASE_URL;
 
-export default function DriverLoginScreen({ navigation }: any) {
-  const { signIn } = useAuth();
+export default function ForgotPasswordScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const login = async () => {
+  const onSend = async () => {
     try {
-      if (!email || !password) {
-        Alert.alert("⚠️ Missing Fields", "Please enter email and password.");
+      if (!email) {
+        Alert.alert("⚠️ Missing Email", "Enter your registered email.");
         return;
       }
-
       setLoading(true);
 
-      const { data } = await axios.post(`${API}/auth/login`, {
+      await axios.post(`${API}/auth/forgot-password`, {
         email: email.trim().toLowerCase(),
-        password, // ✅ plaintext
       });
 
-      if (data?.user?.role !== "driver") {
-        Alert.alert("Access denied", "This login is only for drivers.");
-        return;
-      }
-
-      await signIn(data.token, data.user, true);
-    } catch (err: any) {
       Alert.alert(
-        "Login failed",
-        err?.response?.data?.error || "Check credentials"
+        "Check your email",
+        "If an account exists, a reset code has been sent."
       );
+      navigation.navigate("ResetPassword", { email: email.trim().toLowerCase() });
+    } catch (e: any) {
+      Alert.alert("Error", "Try again later.");
     } finally {
       setLoading(false);
     }
@@ -44,7 +35,8 @@ export default function DriverLoginScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, justifyContent: "center", padding: 24, gap: 12 }}>
-      <Text style={{ fontSize: 28, fontWeight: "800" }}>Driver Login</Text>
+      <Text style={{ fontSize: 26, fontWeight: "800" }}>Forgot Password</Text>
+      <Text>Enter your registered email to receive a reset OTP.</Text>
 
       <TextInput
         placeholder="Email"
@@ -55,16 +47,8 @@ export default function DriverLoginScreen({ navigation }: any) {
         style={{ borderWidth: 1, padding: 12, borderRadius: 10 }}
       />
 
-      <TextInput
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        style={{ borderWidth: 1, padding: 12, borderRadius: 10 }}
-      />
-
       <Pressable
-        onPress={login}
+        onPress={onSend}
         disabled={loading}
         style={{
           backgroundColor: "#111827",
@@ -75,7 +59,7 @@ export default function DriverLoginScreen({ navigation }: any) {
         }}
       >
         <Text style={{ color: "white", fontWeight: "700" }}>
-          {loading ? "Logging in…" : "Log In"}
+          {loading ? "Sending…" : "Send Reset OTP"}
         </Text>
       </Pressable>
     </View>
