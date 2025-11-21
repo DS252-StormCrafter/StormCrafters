@@ -8,7 +8,7 @@ import {
 } from "../services/admin";
 
 const WS_URL =
-  (import.meta.env.VITE_API_BASE || "http://10.24.240.208:5002").replace(/^http/, "ws") +
+  (import.meta.env.VITE_API_BASE || "https://derick-unmentionable-overdistantly.ngrok-free.dev").replace(/^http/, "ws") +
   "/ws";
 
 export default function Notifications() {
