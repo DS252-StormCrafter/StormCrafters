@@ -12,6 +12,7 @@ import cors from "cors";
 import { WebSocketServer } from "ws";
 import * as querystring from "querystring";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { authenticate } from "./middleware/auth.js";
 
 import authRoutes from "./routes/auth.js";
@@ -35,6 +36,45 @@ import etaRoutes from "./routes/eta.js"; // ⬅️ NEW
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
+// ----------------------------------------------------------------------------
+// 🔐 JWT secret bootstrap (FIXES hardcoded weak fallback)
+// ----------------------------------------------------------------------------
+function ensureJwtSecret() {
+  const existing = process.env.JWT_SECRET?.trim();
+
+  // If already provided, use it.
+  if (existing) return existing;
+
+  const isProd = (process.env.NODE_ENV || "").toLowerCase() === "production";
+  const usingEmulator = !!process.env.FIRESTORE_EMULATOR_HOST?.trim();
+
+  if (isProd) {
+    console.error(
+      "❌ FATAL: JWT_SECRET is missing in production.\n" +
+        "Set a strong secret in your environment. Refusing to start."
+    );
+    process.exit(1);
+  }
+
+  // Dev / emulator convenience: generate strong random secret per boot
+  const generated = crypto.randomBytes(48).toString("hex");
+  process.env.JWT_SECRET = generated;
+
+  console.warn(
+    "⚠️  JWT_SECRET was not set. Generated a strong random secret for this dev session.\n" +
+      "Tokens will become invalid after restart.\n" +
+      (usingEmulator
+        ? "✅ Firestore emulator detected; this is expected for local dev."
+        : "ℹ️  Consider adding JWT_SECRET to .env for stable local tokens.")
+  );
+
+  return generated;
+}
+
+// Ensure secret exists early so all modules/middleware see it.
+// (Even if they do process.env.JWT_SECRET || "secret", they’ll now pick this.)
+const JWT_SECRET = ensureJwtSecret();
 
 // ----------------------------------------------------------------------------
 // Firebase init
@@ -425,8 +465,9 @@ wss.on("connection", (ws, req) => {
         const token = msg.token || msg.jwt || msg.authToken;
         if (!token) return startBroadcast();
         try {
-          const secret = process.env.JWT_SECRET || "secret";
-          const decoded = jwt.verify(token, secret);
+          // ✅ Use hardened secret (no weak fallback)
+          const decoded = jwt.verify(token, JWT_SECRET);
+
           const tokenRole = (
             decoded.role || decoded.userRole || decoded.type || ""
           )
