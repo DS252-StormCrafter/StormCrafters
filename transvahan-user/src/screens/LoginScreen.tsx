@@ -4,7 +4,7 @@ import axios from "axios";
 import { useAuth } from "../auth/authContext";
 import { setToken as setApiToken } from "../api/client";
 
-const API = "https://pg23gzqgsa.ap-south-1.awsapprunner.com";
+const API = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
 
 export default function LoginScreen({ navigation }: any) {
   const { signIn } = useAuth();

@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import axios from "axios";
 
-const API_BASE_URL = "https://pg23gzqgsa.ap-south-1.awsapprunner.com";
+const API_BASE_URL = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
 const WS_URL = API_BASE_URL.replace(/^http/, "ws") + "/ws";
 
 export default function UserAlertsTab() {

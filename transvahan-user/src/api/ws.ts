@@ -11,7 +11,7 @@ import Constants from "expo-constants";
 console.log("🚀 [TransVahan WS] DEFENSIVE NORMALIZER ACTIVE");
 
 // Get API base from Expo config, fallback to explicit URL
-const FALLBACK_API = "https://pg23gzqgsa.ap-south-1.awsapprunner.com";
+const FALLBACK_API = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
 
 const API_BASE_URL: string =
   ((Constants as any)?.expoConfig?.extra?.API_BASE_URL as string) ||
