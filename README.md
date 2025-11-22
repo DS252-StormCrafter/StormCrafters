@@ -153,7 +153,7 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
 
 
 
- ## 🌐 9. Build and Deploy Admin Portal
+ ## 🌐 8. Build and Deploy Admin Portal
  In the ```./admin-portal``` run the following commands
 
  ```bash
@@ -167,7 +167,7 @@ aws s3 sync dist/ s3://$BUCKET_NAME --delete
 You can now access your admin portal via the website endpoint printed by Terraform.
 
 
- ## 11. Build Mobile App (APK)
+ ## 9. Build Mobile App (APK)
 
  - Create an account in `https://expo.dev/` 
  - The above Credentials will be used in `eas login`
@@ -195,7 +195,7 @@ eas build --platform android --profile production
 
  ```
 
- ## 📲 12. Download and Install the APK
+ ## 📲 10. Download and Install the APK
 
 After the build completes, visit the EAS dashboard link printed in your terminal, or list your builds:
 ```bash
