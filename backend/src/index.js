@@ -44,7 +44,7 @@ function initFirebase() {
 
   const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST?.trim();
   const projectId =
-    process.env.FIREBASE_PROJECT_ID?.trim() || "midterm-transvahan";
+    process.env.FIREBASE_PROJECT_ID?.trim() || "<PROJECT_ID>";
 
   if (emulatorHost) {
     console.log(`🔥 Using Firestore Emulator: ${emulatorHost}`);

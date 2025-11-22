@@ -16,7 +16,7 @@ import { useAuth } from "../auth/authContext";
 import DemandIndicator from "../components/DemandIndicator";
 import { apiClient } from "../api/client";
 
-const API_BASE_URL = "https://pg23gzqgsa.ap-south-1.awsapprunner.com";
+const API_BASE_URL = "https://<APP_RUNNER_BACKEND_URL>";
 const ASPECT_RATIO = Dimensions.get("window").width / Dimensions.get("window").height;
 
 export default function DriverDashboardTab() {

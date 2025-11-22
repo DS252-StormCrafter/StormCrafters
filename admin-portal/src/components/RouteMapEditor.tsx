@@ -44,7 +44,7 @@ const DEFAULT_CENTER = { lat: 13.0213, lng: 77.567 };
 const GMAPS_SCRIPT_ID = "tv-google-maps-js";
 
 // OPTIONAL: last-resort hardcoded key (only if env refuses to cooperate)
-const HARDCODED_GMAPS_KEY = "<YOUR_GOOGLE_MAPS_KEY>"; // e.g. "AI*******************"
+const HARDCODED_GMAPS_KEY = "<WE_NEED_THIS>"; 
 
 let mapsLoadAttempted = false;
 

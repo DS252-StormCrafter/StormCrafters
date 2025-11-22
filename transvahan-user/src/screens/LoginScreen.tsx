@@ -7,7 +7,7 @@ import * as Crypto from "expo-crypto";
 import { useAuth } from "../auth/authContext";
 import { setToken as setApiToken } from "../api/client";
 
-const API = "https://pg23gzqgsa.ap-south-1.awsapprunner.com";
+const API = "https://<APP_RUNNER_BACKEND_URL>";
 
 export default function LoginScreen() {
   const { signIn } = useAuth();

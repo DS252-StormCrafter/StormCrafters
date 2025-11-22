@@ -8,7 +8,7 @@ import { Vehicle } from "../types";
 
 const API =
   (Constants as any).expoConfig?.extra?.API_BASE_URL ||
-  "https://pg23gzqgsa.ap-south-1.awsapprunner.com";
+  "https://<APP_RUNNER_BACKEND_URL>";
 
 export default function ShuttleListScreen() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);

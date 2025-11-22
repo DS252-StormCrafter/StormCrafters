@@ -61,36 +61,16 @@
 ```
 
  - Create a Firebase Project in the Firebase Console 
- - Go to Project Settings -> Service Accounts -> Generate new private key (Node.js) 
+ - Go to Project Settings --> Service Accounts --> Generate new private key (Node.js) 
  - Save the downloaded file in ```./backend```
+ - Copy the name of the file 
+ - Replace all the occurances of `<GOOGLE_SERVICE_ACCOUNT>` with the name of the file
+ - Replace all the occurances of `<EMAIL_ID>` with Your email ID
+ - Replace all the occurances of `<EMAIL_PASSWORD>` with your app password (email ID password generated 16 characters)
+ - Replace all the occurances of `<PROJECT_ID>` with your project ID present in downloaded file stored in `./backend`
+ - Replace all the occurances of `<WE_NEED_THIS>` with your Google Maps API Key
 
-  In the ```./backend``` run the following commands
- 
- ```bash
- 
- 
- # JWT Secret (generate one in the previous step)
- sed -i 's|your_jwt_secret_key|<paste_it_here>|g' .env
- 
- # Gmail SMTP (For OTP services enter a valid e-mail and passkey) 
- sed -i 's|ur_email|<paste_it_here>|g' .env
- sed -i 's|ur_app_password|<paste_it_here>|g' .env
- 
- # Firebase 
- sed -i 's|ur_project_id|<paste_it_here>|g' .env  # Present in downloaded file
- sed -i 's|ur_service_account_key_file.json|<paste_it_here>|g' .env # Name of the file <downloaded.json>
- 
- # Google Maps
- sed -i 's|ur_google_maps_api_key|<paste_it_here>|g' .env
- 
- #Verify
- grep -v '^#' .env
- 
- ```
-In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
-- Replace <YOUR_GOOGLE_MAPS_KEY> by ur Google maps API key
- 
-
+---
 
 ## 4. Cloud Configuration
  ```bash
@@ -100,9 +80,9 @@ In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
  # Enter your AWS Access Key, Secret, Region (ap-south-1)
  
  
- aws ecr create-repository --repository-name <unique_repo_name>   # Note this repo name for Step 6
+ aws ecr create-repository --repository-name <UNIQUE_REPO_NAME>   # Note this repo name for Step 6
  ```
- - In the file ```./infra/terraform.tfvars``` set a unique_bucket_name
+ - In the file ```./infra/terraform.tfvars``` set a `<UNIQUE_BUCKET_NAME>`
 
 
 ## 🧱 5. Infrastructure Deployment (Terraform)
@@ -136,17 +116,18 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
  
  # 3️⃣ Tag the image for your ECR repository
  docker tag transvahan-backend:latest \
-   <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<unique_repo_name>:latest
+   <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<UNIQUE_REPO_NAME>:latest
  
  # 4️⃣ Push the image to ECR
- docker push <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<unique_repo_name>:latest
+ docker push <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<UNIQUE_REPO_NAME>:latest
+  
 ```
 
 ## 7. Deploy Backend on AWS App Runner
  - Go to AWS Console → App Runner
  - Create service
  - Choose "Container registry" → "Amazon ECR"
- - Select your uploaded image (<unique_repo_name>)
+ - Select your uploaded image (<UNIQUE_REPO_NAME>)
  - Port: 5001
  - Deployment: Automatic (to redeploy on image push)
  - Service name: transvahan-backend
@@ -155,9 +136,12 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
  The above step will take time to deploy
  
  - Once deployed, note down the service URL (e.g. https://abcdefghi.ap-south-1.awsapprunner.com)
- - This is ur <APP_RUNNER_BACKEND_URL> 
+ - This is ur `<APP_RUNNER_BACKEND_URL>` 
+
  - And make sure that what ever u have copied looks like this abcdefghi.ap-south-1.awsapprunner.com
 
+ - Replace all the occurances of `<APP_RUNNER_BACKEND_URL>` with url u copied 
+ 
  ### Health Check
  ```bash
  
@@ -166,19 +150,7 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
  # Should Return {"ok": true}
 ```
 
-## 🧩 8. Environment Variables Setup -2 (Admin Portal)
 
-In the ```./admin-portal``` run the following commands
- ```bash
- cd admin-portal
-
- # Replace App Runner backend URL
- sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
- 
- # Replace Google Maps API key
- sed -i 's|<YOUR_GOOGLE_MAPS_KEY>|<paste_it_here>|g' .env
-
- ```
 
  ## 🌐 9. Build and Deploy Admin Portal
  In the ```./admin-portal``` run the following commands
@@ -193,31 +165,6 @@ aws s3 sync dist/ s3://$BUCKET_NAME --delete
 ```
 You can now access your admin portal via the website endpoint printed by Terraform.
 
-
-## 📱 10. Environment Variables Setup -3 (Mobile App)
- In `/transvahan-user` directory run the following commands
- 
- ```bash
- 
- 
- # Replace the API Base URL (App Runner backend endpoint)
- sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
- 
- # Replace the Google Maps API key
- sed -i 's|<YOUR_GOOGLE_MAPS_API_KEY>|<paste_it_here>|g' .env
- 
- # Verify 
- grep -v '^#' .env
- ```
- Also open `transvahan-user/eas.json` and set:
-```bash
-"env": {
-  "API_BASE_URL": "https://<APP_RUNNER_BACKEND_URL>",
-  "WS_URL": "wss://<APP_RUNNER_BACKEND_URL>/ws",
-  "USE_MOCK": "false",
-  "GOOGLE_MAPS_API_KEY": "<your_maps_key>"
-}
-```
 
  ## 11. Build Mobile App (APK)
 
