@@ -1,32 +1,234 @@
-# How to Run the Stack
 
-1. **Start the backend**
-   - Copy `backend/.env.example` to `backend/.env`, fill in Firebase + JWT secrets, then run:
-     ```bash
-     cd backend
-     npm install
-     node src/server.js
-     ```
-   - The API + WebSocket server boots on `http://localhost:5001`.
-2. **Expose the backend (optional but required for remote/mobile access)**
-   - In a separate terminal run `ngrok http 5001` (or your chosen port). Note the forwarded HTTPS URL (e.g. `https://abcd.ngrok.io`).
-   - Use that URL for any client that cannot hit `localhost` directly (see steps 3–4).
-3. **Launch the admin portal**
-   - Copy `admin-portal/.env.example` to `.env`, set `VITE_API_BASE` to either `http://localhost:5001` or `https://abcd.ngrok.io` then run:
-     ```bash
-     cd admin-portal
-     npm install
-     npm run dev
-     ```
-   - Vite serves the dashboard on `http://localhost:3001`; log in and you will see live data as long as the backend (or ngrok tunnel) stays running.
-4. **Launch the Expo user app**
-   - Copy `transvahan-user/.env.example` to `.env` and set `API_BASE_URL`/`WS_URL` to the backend base (ngrok URL recommended so real devices can connect).
-   - Start Metro with:
-     ```bash
-     cd transvahan-user
-     npm install
-     npx expo start -c --tunnel
-     ```
-   - Scan the QR code in Expo Go (or run `npm run start -- --android/--ios`). The app consumes the same backend instance and mirrors whatever admin updates.
+ # 🚖 TransVahan — Smart Campus Shuttle Management System
+ 
+ **TransVahan** is a full-stack, real-time campus shuttle platform connecting **Users**, **Drivers**, and **Administrators**.  
+ It provides live shuttle tracking, route editing, occupancy analytics, and predictive ETAs — built using Node.js, React, React Native, Firebase, AWS, and Terraform.
+ 
+ ---
+ 
+ ## 🧭 Project Overview
+ 
+ | Module | Description |
+ |--------|-------------|
+ | **Backend** | Node.js + Express + Firebase + WebSocket for APIs & live updates |
+ | **Admin Portal** | React + Vite dashboard for managing routes, vehicles, and drivers |
+ | **User App** | React Native + Expo mobile app (EAS-built APK) |
+ | **Infra** | Terraform + AWS (ECR, App Runner, S3 hosting) |
+ 
+ ---
+ 
+ ## ⚙️ 1. Prerequisites
+ 
+ Install the following tools (latest stable versions recommended):
+ 
+ | Tool | Purpose | Command |
+ |------|----------|---------|
+ | **Node.js** (≥ 20) | For backend & frontend builds | `sudo apt install nodejs npm` |
+ | **Docker** | For backend containerization | [Install Guide](https://docs.docker.com/get-docker/) |
+ | **AWS CLI v2** | To interact with AWS ECR/AppRunner/S3 | [AWS CLI Install](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) |
+ | **Terraform (≥1.6)** | Infrastructure provisioning | `sudo apt install terraform` |
+ | **Expo CLI + EAS CLI** | For React Native APK builds | `npm install -g expo-cli eas-cli` |
+ | **Git** | Version control | `sudo apt install git` |
+ 
+ ---
+ 
+ ## 🌍 2. Repository Setup
+ 
+ ```bash
+ # Clone repo
+ git clone https://github.com/skmanoj2006/StormCrafters.git
+ cd StormCrafters
+ 
+ # 1) Backend env
+ cp backend/.env.example backend/.env
+ # edit backend/.env and fill real secrets
+ 
+ # 2) Admin portal env
+ cp admin-portal/.env.example admin-portal/.env
+ # later, set VITE_API_BASE after backend URL is known
+ 
+ # 3) Mobile app env
+ cp transvahan-user/.env.example transvahan-user/.env
+ # later, set API_BASE_URL + WS_URL after backend URL is known
+ 
+ ```
+ 
+ 
+ ## ⚡ 3. Backend Environment Setup
+ Generate a JWT_SECRET_KEY
+ ```bash
+ head -c 32 /dev/urandom | base64
+```
 
-Keep the backend (or its ngrok tunnel) alive the whole time—both the admin portal and the mobile client stream data through it.
+ - Create a Firebase Project in the Firebase Console 
+ - Go to Project Settings --> Service Accounts --> Generate new private key (Node.js) 
+ - Save the downloaded file in ```./backend```
+ - Copy the name of the file 
+ - Replace all the occurances of `<GOOGLE_SERVICE_ACCOUNT>` with the name of the file
+ - Replace all the occurances of `<EMAIL_ID>` with Your email ID
+ - Replace all the occurances of `<EMAIL_PASSWORD>` with your app password (email ID password generated 16 characters)
+ - Replace all the occurances of `<PROJECT_ID>` with your project ID present in downloaded file stored in `./backend`
+ - Replace all the occurances of `<WE_NEED_THIS>` with your Google Maps API Key
+ - Replace all the occurances of `<UNIQUE_BUCKET_NAME>` with your Unique S3 Bucket Name [You have to set this]
+
+
+---
+
+## 4. Cloud Configuration
+ ```bash
+ cd ..
+ 
+ aws configure
+ # Enter your AWS Access Key, Secret, Region (ap-south-1)
+ 
+ 
+ aws ecr create-repository --repository-name <UNIQUE_REPO_NAME>   # Note this repo name for Step 6
+ ```
+
+
+## 🧱 5. Infrastructure Deployment (Terraform)
+ In ```./infra``` run the below commands
+ ```bash
+ 
+ cd infra
+ terraform init
+ terraform plan
+ terraform apply
+ 
+ 
+ terraform output
+ # Note admin_portal_website_endpoint
+ 
+ ```
+If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``` with a globally unique bucket name and rerun terraform apply.
+
+
+ ## 🐳 6. Build and Push Backend to AWS ECR
+ 
+ ```bash
+ cd ../backend
+ 
+ # 1️⃣ Authenticate Docker with AWS ECR
+ aws ecr get-login-password --region ap-south-1 | \
+   docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com
+ 
+ # 2️⃣ Build the backend Docker image
+ docker build -t transvahan-backend:latest .
+ 
+ # 3️⃣ Tag the image for your ECR repository
+ docker tag transvahan-backend:latest \
+   <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<UNIQUE_REPO_NAME>:latest
+ 
+ # 4️⃣ Push the image to ECR
+ docker push <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<UNIQUE_REPO_NAME>:latest
+  
+```
+
+## 7. Deploy Backend on AWS App Runner
+ - Go to AWS Console → App Runner
+ - Create service
+ - Choose "Container registry" → "Amazon ECR"
+ - Select your uploaded image (<UNIQUE_REPO_NAME>)
+ - Port: 5001
+ - Deployment: Automatic (to redeploy on image push)
+ - Service name: transvahan-backend
+ - Allow public access
+
+ The above step will take time to deploy
+ 
+ - Once deployed, note down the service URL (e.g. https://abcdefghi.ap-south-1.awsapprunner.com)
+ - This is ur `<APP_RUNNER_BACKEND_URL>` 
+
+ - And make sure that what ever u have copied looks like this abcdefghi.ap-south-1.awsapprunner.com
+
+ - Replace all the occurances of `<APP_RUNNER_BACKEND_URL>` with url u copied 
+ 
+ ### Health Check
+ ```bash
+ 
+ curl -i https://<APP_RUNNER_URL>/health
+ 
+ # Should Return {"ok": true}
+```
+
+
+
+ ## 🌐 9. Build and Deploy Admin Portal
+ In the ```./admin-portal``` run the following commands
+
+ ```bash
+ npm install
+ npm run build
+ 
+ # Upload to the Terraform-created bucket
+BUCKET_NAME=$(terraform output -raw admin_portal_bucket_name)
+aws s3 sync dist/ s3://$BUCKET_NAME --delete
+```
+You can now access your admin portal via the website endpoint printed by Terraform.
+
+
+ ## 11. Build Mobile App (APK)
+
+ - Create an account in `https://expo.dev/` 
+ - The above Credentials will be used in `eas login`
+ - Click on Create a Project and set a Display Name and you will get the corresponding SLUG.
+ - Copy the Display Name and SLUG you get after creating the project.
+ - Paste the above copied info in `transvahan-user/app.config.ts`, precisely, `name: "<PASTE_YOUR_APP_NAME_HERE>", slug: "<Paste_your_app_slug_here>",`
+
+ ```bash
+ # Ensure EAS CLI is installed
+npm install -g eas-cli
+
+cd transvahan-user
+eas login
+
+# First build attempt
+eas build --platform android --profile production
+# Type Yes for anything asked
+# If you see "Missing eas.projectId":
+# Open transvahan-user/app.config.ts and add:
+# eas: { projectId: "your-eas-project-id" },
+
+# Then rebuild
+eas build --platform android --profile production
+
+
+ ```
+
+ ## 📲 12. Download and Install the APK
+
+After the build completes, visit the EAS dashboard link printed in your terminal, or list your builds:
+```bash
+eas build:list
+```
+
+Download the .apk, install it on your Android device, and enjoy your working TransVahan app 🚖
+ 
+
+ ## ✅ Quick Reference
+
+ ### ✅ Quick Reference
+
+| Step | Purpose | Command |
+|------|----------|----------|
+| **Terraform Infra** | Provision AWS resources (S3, IAM, etc.) | `cd infra && terraform apply` |
+| **Build Backend** | Build Node.js backend Docker image | `docker build -t transvahan-backend .` |
+| **Push to ECR** | Push image to AWS Elastic Container Registry | `docker push <repo_uri>:latest` |
+| **Deploy App Runner** | Deploy backend container to App Runner | *Use AWS Console* |
+| **Sync Frontend** | Upload built admin portal to S3 | `aws s3 sync dist/ s3://<bucket>` |
+| **Build APK** | Build mobile app using Expo EAS | `eas build --platform android` |
+
+
+
+
+---
+
+**Author:** Team StormCrafters  
+**Region:** `ap-south-1`  
+**Stack:** Node.js • React • React Native • Firebase • AWS • Terraform  
+**Version:** 1.0.0
+
+---
+ 
+ 
+ 

@@ -10,7 +10,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
-    name: "Transvahan User",
+    name: "<PASTE_YOUR_APP_NAME_HERE>",
     slug: "<Paste_your_app_slug_here>",
 
     // App versioning for stores / installation

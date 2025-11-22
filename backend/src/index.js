@@ -86,7 +86,7 @@ function initFirebase() {
 
   const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST?.trim();
   const projectId =
-    process.env.FIREBASE_PROJECT_ID?.trim() || "midterm-transvahan";
+    process.env.FIREBASE_PROJECT_ID?.trim() || "<PROJECT_ID>";
 
   if (emulatorHost) {
     console.log(`🔥 Using Firestore Emulator: ${emulatorHost}`);
@@ -132,6 +132,8 @@ app.set("trust proxy", true);
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:3001", // Admin portal
   "http://localhost:8081", // User app
+  "http://<UNIQUE_BUCKET_NAME>.s3-website.ap-south-1.amazonaws.com", // Admin portal prod
+  "https://<UNIQUE_BUCKET_NAME>.s3-website.ap-south-1.amazonaws.com" // Admin portal prod HTTPS
 ];
 
 // Optional extra origins via env: CORS_ORIGINS="http://foo.com,https://bar.com"
@@ -354,7 +356,7 @@ console.log("🛠️ Routes loaded successfully.");
 // ----------------------------------------------------------------------------
 // HTTP + WebSocket Server
 // ----------------------------------------------------------------------------
-const PORT = process.env.PORT || 5002;
+const PORT = process.env.PORT || 5001;
 const server = app.listen(PORT, () =>
   console.log(`🚀 Backend running on http://localhost:${PORT}`)
 );

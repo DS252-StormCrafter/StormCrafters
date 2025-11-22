@@ -19,12 +19,11 @@ ENV NODE_ENV=production
 ENV PORT=5001
 
 # Your Firebase service account JSON is in backend/ based on folder_plan.txt:
-# midterm-transvahan-firebase-adminsdk-fbsvc-f78f96cb89.json
-# Inside the container it will end up at /app/midterm-transvahan-firebase-adminsdk-fbsvc-f78f96cb89.json
-ENV GOOGLE_APPLICATION_CREDENTIALS=/app/<ur_service_account_key_file.json>
+# Inside the container it will end up at /app/<GOOGLE_SERVICE_ACCOUNT>.json
+ENV GOOGLE_APPLICATION_CREDENTIALS=/app/<GOOGLE_SERVICE_ACCOUNT>.json
 
 # 6) Expose app port
 EXPOSE 5001
 
 # 7) Start the server
-CMD ["node", "src/index.js"]
+CMD ["node", "src/server.js"]

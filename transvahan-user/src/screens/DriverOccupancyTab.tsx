@@ -10,7 +10,7 @@ export default function DriverOccupancyTab() {
   const [capacity, setCapacity] = useState<number>(4);
   const [vehicleId] = useState<string>("BUS-101"); // ✅ Replace later with driver's selected vehicle
 
-const API_BASE_URL = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
+const API_BASE_URL = "<APP_RUNNER_BACKEND_URL>";
 
   useEffect(() => {
     // Optional: fetch initial occupancy from backend (via /vehicles)
