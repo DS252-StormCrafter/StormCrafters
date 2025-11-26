@@ -1,5 +1,5 @@
 // transvahan-user/src/screens/RouteSelectorTab.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,9 @@ import {
   ScrollView,
   useColorScheme,
 } from "react-native";
+import Constants from "expo-constants";
+import * as Location from "expo-location";
+import type { LocationObject } from "expo-location";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiClient as client, http } from "../api/client";
@@ -26,20 +29,16 @@ type RouteItem = {
   fro_count?: number;
 };
 
-type RawStop = {
-  stop_name: string;
-  route_id?: string | number;
-  route_name?: string;
-  lat: number;
-  lon: number;
-};
-
-type UniqueStop = {
+type LocationOption = {
   id: string;
   name: string;
   lat: number;
   lon: number;
-  routes: string[];
+  subtitle?: string;
+  address?: string;
+  place_id?: string;
+  routes?: string[];
+  source?: "stop" | "google_place" | "current";
 };
 
 type PlannerStep = {
@@ -75,72 +74,76 @@ function normalizeRoutes(list: any[]): RouteItem[] {
   }));
 }
 
-function buildUniqueStops(raw: any[]): UniqueStop[] {
-  const map = new Map<
-    string,
-    { name: string; lat: number; lon: number; routes: Set<string> }
-  >();
-
-  raw.forEach((s: any) => {
-    const stopName = (s.stop_name || "").trim();
-    if (!stopName) return;
-
-    const lat = s.lat;
-    const lon = s.lon;
-    if (
-      typeof lat !== "number" ||
-      typeof lon !== "number" ||
-      isNaN(lat) ||
-      isNaN(lon)
-    )
-      return;
-
-    const key = stopName.toLowerCase();
-    const routeLabel = s.route_name || s.route_id || "Route";
-
-    if (!map.has(key)) {
-      map.set(key, {
-        name: stopName,
-        lat,
-        lon,
-        routes: new Set([String(routeLabel)]),
-      });
-    } else {
-      const entry = map.get(key)!;
-      entry.routes.add(String(routeLabel));
-    }
-  });
-
-  return Array.from(map.values()).map((v, idx) => ({
-    id: `${v.name}_${idx}`,
-    name: v.name,
-    lat: v.lat,
-    lon: v.lon,
-    routes: Array.from(v.routes),
-  }));
-}
-
 export default function RouteSelectorTab() {
   const navigation = useNavigation<any>();
   const scheme = useColorScheme();
   const C = getColors(scheme);
   const insets = useSafeAreaInsets();
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } =
+          await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") return;
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        setUserLoc(loc);
+      } catch (err) {
+        console.warn("Location permission error (RouteSelectorTab):", err);
+      }
+    })();
+  }, []);
+
+  // Cache stops for fallback search when planner/search is unavailable.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await http.get("/routes/stops/all");
+        if (!Array.isArray(data) || cancelled) return;
+        const normalized = data
+          .map((s: any) =>
+            normalizeLocationOption({
+              ...s,
+              name: s.stop_name,
+              subtitle: "Campus stop",
+              source: "stop",
+            })
+          )
+          .filter(
+            (x: LocationOption | null): x is LocationOption => !!x
+          );
+        setAllStops(dedupeLocations(normalized));
+      } catch (err) {
+        console.warn("Stops cache load error (RouteSelectorTab):", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // All lines
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [routesLoading, setRoutesLoading] = useState(true);
   const [routesError, setRoutesError] = useState<string | null>(null);
-
-  // Stops for search
-  const [stops, setStops] = useState<UniqueStop[]>([]);
-  const [stopsLoading, setStopsLoading] = useState(false);
-  const [stopsError, setStopsError] = useState<string | null>(null);
+  const [plannerSearchAvailable, setPlannerSearchAvailable] = useState(true);
 
   // Planner search UX
   const [fromQuery, setFromQuery] = useState("");
   const [toQuery, setToQuery] = useState("");
-  const [fromStop, setFromStop] = useState<UniqueStop | null>(null);
-  const [toStop, setToStop] = useState<UniqueStop | null>(null);
+  const [fromStop, setFromStop] = useState<LocationOption | null>(null);
+  const [toStop, setToStop] = useState<LocationOption | null>(null);
+  const [fromSuggestions, setFromSuggestions] = useState<LocationOption[]>([]);
+  const [toSuggestions, setToSuggestions] = useState<LocationOption[]>([]);
+  const [searching, setSearching] = useState({ from: false, to: false });
+  const [userLoc, setUserLoc] = useState<LocationObject | null>(null);
+  const [allStops, setAllStops] = useState<LocationOption[]>([]);
+  const [searchMessage, setSearchMessage] = useState<string | null>(null);
+  const skipFromSearchRef = useRef(false);
+  const skipToSearchRef = useRef(false);
 
   const [planResult, setPlanResult] = useState<PlannerResult | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
@@ -164,69 +167,322 @@ export default function RouteSelectorTab() {
     })();
   }, []);
 
-  // Load stops for search
-  useEffect(() => {
-    (async () => {
-      try {
-        setStopsLoading(true);
-        setStopsError(null);
-        const { data } = await http.get("/routes/stops/all");
-        if (Array.isArray(data)) {
-          const uniq = buildUniqueStops(data as RawStop[]);
-          setStops(uniq);
-        } else {
-          setStops([]);
-          setStopsError("Unexpected stops response from server.");
-        }
-      } catch (err: any) {
-        console.warn("Stops load error:", err);
-        setStopsError(err?.response?.data?.error || "Failed to load stops.");
-      } finally {
-        setStopsLoading(false);
-      }
-    })();
-  }, []);
+  const normalizeLocationOption = (item: any): LocationOption | null => {
+    const lat =
+      item?.lat ??
+      item?.latitude ??
+      item?.location?.lat ??
+      item?.location?.latitude;
+    const lon =
+      item?.lon ??
+      item?.longitude ??
+      item?.location?.lon ??
+      item?.location?.lng ??
+      item?.location?.longitude;
 
-  const filterStops = (query: string): UniqueStop[] => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+    const name = item?.name || item?.stop_name;
+    if (!name) return null;
+
+    const subtitle =
+      item?.subtitle ||
+      item?.formatted_address ||
+      item?.vicinity ||
+      undefined;
+    const address =
+      item?.formatted_address ||
+      item?.vicinity ||
+      item?.address ||
+      undefined;
+
+    const routesArr =
+      Array.isArray(item?.routes) && item.routes.length
+        ? item.routes.map((r: any) => String(r))
+        : item?.route_name
+        ? [String(item.route_name)]
+        : undefined;
+
+    return {
+      id: String(
+        item?.id || item?.stop_id || item?.place_id || `${name}_${lat}_${lon}`
+      ),
+      name,
+      lat,
+      lon,
+      subtitle,
+      address,
+      place_id: item?.place_id,
+      routes: routesArr,
+      source: item?.source || (item?.place_id ? "google_place" : "stop"),
+    };
+  };
+
+  const dedupeLocations = (list: LocationOption[]): LocationOption[] => {
+    const map = new Map<string, LocationOption>();
+    list.forEach((loc) =>
+      map.set(
+        `${(loc.name || "").toLowerCase()}`,
+        loc
+      )
+    );
+    return Array.from(map.values());
+  };
+
+  const filterFallbackStops = (
+    query: string,
+    max = 12
+  ): LocationOption[] => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return stops
+    return allStops
       .filter((s) => {
-        const name = s.name.toLowerCase();
-        const routesLabel = s.routes.join(" ").toLowerCase();
-        return name.includes(q) || routesLabel.includes(q);
+        const name = (s.name || "").toLowerCase();
+        const subtitle = (s.subtitle || "").toLowerCase();
+        return name.includes(q) || subtitle.includes(q);
       })
-      .slice(0, 12); // allow more, still fast
+      .slice(0, max);
   };
 
-  const fromSuggestions = filterStops(fromQuery);
-  const toSuggestions = filterStops(toQuery);
+  const resolveGoogleKey = () => {
+    const extraKey = (Constants.expoConfig as any)?.extra?.GOOGLE_MAPS_API_KEY;
+    const envKey = (process.env as any)?.GOOGLE_MAPS_API_KEY;
+    return extraKey || envKey || "";
+  };
 
-  const selectFromStop = (stop: UniqueStop) => {
+  // Places Text Search fallback (REST) when backend search is missing
+  const searchGooglePlacesDirect = async (
+    query: string
+  ): Promise<LocationOption[]> => {
+    const key = resolveGoogleKey();
+    if (!key) return [];
+
+    try {
+      const centerLat = userLoc?.coords?.latitude ?? 13.0205;
+      const centerLon = userLoc?.coords?.longitude ?? 77.5655;
+
+      const url = new URL(
+        "https://maps.googleapis.com/maps/api/place/textsearch/json"
+      );
+      url.searchParams.set("query", query);
+      url.searchParams.set("key", key);
+      url.searchParams.set("location", `${centerLat},${centerLon}`);
+      url.searchParams.set("radius", "5000");
+
+      const resp = await fetch(url.toString());
+      if (!resp.ok) return [];
+      const json = await resp.json();
+      if (json.status !== "OK" && json.status !== "ZERO_RESULTS") return [];
+
+      const results = (json.results || []).slice(0, 8);
+      return results
+        .filter(
+          (r: any) =>
+            r?.geometry?.location &&
+            typeof r.geometry.location.lat === "number" &&
+            typeof r.geometry.location.lng === "number"
+        )
+        .map((r: any) => ({
+          id: r.place_id || r.name,
+          name: r.name || query,
+          subtitle: r.formatted_address || "Google Maps",
+          address: r.formatted_address || undefined,
+          lat: r.geometry.location.lat,
+          lon: r.geometry.location.lng,
+          source: "google_place" as const,
+          place_id: r.place_id,
+        })) as LocationOption[];
+    } catch (err) {
+      console.warn("Direct Google Places search failed:", err);
+      return [];
+    }
+  };
+
+  const runSearch = async (
+    query: string,
+    setter: (list: LocationOption[]) => void,
+    key: "from" | "to"
+  ) => {
+    const q = query.trim();
+    if (!q) {
+      setter([]);
+      return;
+    }
+    setSearching((prev) => ({ ...prev, [key]: true }));
+    setSearchMessage(null);
+    try {
+      let results: LocationOption[] = [];
+
+      if (plannerSearchAvailable) {
+        try {
+          const params: Record<string, any> = { q };
+          if (userLoc?.coords) {
+            params.lat = userLoc.coords.latitude;
+            params.lon = userLoc.coords.longitude;
+          }
+
+          const { data } = await http.get("/planner/search", { params });
+          results = Array.isArray(data?.results)
+            ? data.results
+                .map(normalizeLocationOption)
+                .filter(
+                  (x: LocationOption | null): x is LocationOption => !!x
+                )
+            : [];
+
+          if (results.length) setPlannerSearchAvailable(true);
+        } catch (err: any) {
+          console.warn("Search error:", err);
+          setPlannerSearchAvailable(false); // avoid repeat 404 spam
+        }
+      }
+
+      if (!results.length) {
+        // Fallback directly to Google Places when backend search is missing
+        const placesOnly = await searchGooglePlacesDirect(q);
+        if (placesOnly.length) {
+          results = placesOnly;
+        }
+      }
+
+      if (!results.length) {
+        results = filterFallbackStops(q);
+      } else if (results.length < 8) {
+        const campus = filterFallbackStops(q, 8);
+        const merged = dedupeLocations([
+          ...campus,
+          ...results,
+          ...filterFallbackStops(q, 8 - results.length),
+        ]);
+        results = merged;
+      } else {
+        const campus = filterFallbackStops(q, results.length);
+        results = dedupeLocations([...campus, ...results]);
+      }
+
+      if (!results.length) {
+        setSearchMessage("No results found. Try a different name.");
+      }
+
+      setter(dedupeLocations(results));
+    } finally {
+      setSearching((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      if (cancelled) return;
+      if (skipFromSearchRef.current) {
+        skipFromSearchRef.current = false;
+        setFromSuggestions([]);
+        return;
+      }
+      if (!fromQuery.trim() || fromQuery.trim().length < 2) {
+        setFromSuggestions([]);
+        return;
+      }
+      runSearch(fromQuery, (list) => {
+        if (!cancelled) setFromSuggestions(list);
+      }, "from");
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [fromQuery, userLoc]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      if (cancelled) return;
+      if (skipToSearchRef.current) {
+        skipToSearchRef.current = false;
+        setToSuggestions([]);
+        return;
+      }
+      if (!toQuery.trim() || toQuery.trim().length < 2) {
+        setToSuggestions([]);
+        return;
+      }
+      runSearch(toQuery, (list) => {
+        if (!cancelled) setToSuggestions(list);
+      }, "to");
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [toQuery, userLoc]);
+
+  const validLatLon = (loc: any) =>
+    loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lon);
+
+  const labelForLocation = (stop: LocationOption) => {
+    if (stop.subtitle) return `${stop.name} (${stop.subtitle})`;
+    if (stop.routes?.length)
+      return `${stop.name} (${stop.routes.join(", ")})`;
+    return stop.name;
+  };
+
+  const selectFromStop = (stop: LocationOption) => {
+    skipFromSearchRef.current = true;
     setFromStop(stop);
-    setFromQuery(
-      stop.routes.length
-        ? `${stop.name} (${stop.routes.join(", ")})`
-        : stop.name
-    );
+    setFromQuery(labelForLocation(stop));
+    setFromSuggestions([]);
     setPlanResult(null);
     setPlanError(null);
+
+    // Center map-equivalent context by promoting this into cached stops
+    setAllStops((prev) =>
+      dedupeLocations([
+        ...prev,
+        { ...stop, source: stop.source || "google_place" },
+      ])
+    );
   };
 
-  const selectToStop = (stop: UniqueStop) => {
+  const selectToStop = (stop: LocationOption) => {
+    skipToSearchRef.current = true;
     setToStop(stop);
-    setToQuery(
-      stop.routes.length
-        ? `${stop.name} (${stop.routes.join(", ")})`
-        : stop.name
-    );
+    setToQuery(labelForLocation(stop));
+    setToSuggestions([]);
     setPlanResult(null);
     setPlanError(null);
+
+    setAllStops((prev) =>
+      dedupeLocations([
+        ...prev,
+        { ...stop, source: stop.source || "google_place" },
+      ])
+    );
+  };
+
+  const useCurrentLocation = () => {
+    if (!userLoc?.coords) return;
+    const { latitude, longitude } = userLoc.coords;
+    const current: LocationOption = {
+      id: "current_location",
+      name: "Current location",
+      subtitle: "Using GPS",
+      lat: latitude,
+      lon: longitude,
+      source: "current",
+    };
+    selectFromStop(current);
   };
 
   const planRoute = async () => {
     if (!fromStop || !toStop) {
       setPlanError("Please select both origin and destination.");
+      return;
+    }
+
+    if (!validLatLon(fromStop) || !validLatLon(toStop)) {
+      setPlanError("Selected locations are missing coordinates.");
       return;
     }
 
@@ -322,6 +578,16 @@ export default function RouteSelectorTab() {
             placeholder="e.g. Main Gate, New Hostel Complex…"
             placeholderTextColor={C.mutedText}
           />
+          {userLoc?.coords && (
+            <TouchableOpacity
+              style={styles.inlineAction}
+              onPress={useCurrentLocation}
+            >
+              <Text style={[styles.inlineActionText, { color: C.primary }]}>
+                Use current location
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {fromSuggestions.length > 0 && (
             <View
@@ -330,14 +596,14 @@ export default function RouteSelectorTab() {
                 { backgroundColor: C.card, borderColor: C.border },
               ]}
             >
-              <FlatList
-                data={fromSuggestions}
-                keyExtractor={(s, idx) => `${s.id}_from_${idx}`}
+              <ScrollView
+                style={{ maxHeight: 180 }}
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"
-                style={{ maxHeight: 180 }}
-                renderItem={({ item: s }) => (
+              >
+                {fromSuggestions.map((s, idx) => (
                   <TouchableOpacity
+                    key={`${s.id}_from_${idx}`}
                     style={[
                       styles.suggestionItem,
                       { borderBottomColor: C.border },
@@ -349,16 +615,17 @@ export default function RouteSelectorTab() {
                     >
                       {s.name}
                     </Text>
-                    {!!s.routes.length && (
+                    {(s.subtitle || s.routes?.length) && (
                       <Text
                         style={[styles.suggestionMeta, { color: C.mutedText }]}
                       >
-                        Lines: {s.routes.join(", ")}
+                        {s.subtitle ||
+                          (s.routes?.length ? "" : "Google Maps")}
                       </Text>
                     )}
                   </TouchableOpacity>
-                )}
-              />
+                ))}
+              </ScrollView>
             </View>
           )}
         </View>
@@ -393,14 +660,14 @@ export default function RouteSelectorTab() {
                 { backgroundColor: C.card, borderColor: C.border },
               ]}
             >
-              <FlatList
-                data={toSuggestions}
-                keyExtractor={(s, idx) => `${s.id}_to_${idx}`}
+              <ScrollView
+                style={{ maxHeight: 180 }}
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"
-                style={{ maxHeight: 180 }}
-                renderItem={({ item: s }) => (
+              >
+                {toSuggestions.map((s, idx) => (
                   <TouchableOpacity
+                    key={`${s.id}_to_${idx}`}
                     style={[
                       styles.suggestionItem,
                       { borderBottomColor: C.border },
@@ -412,16 +679,17 @@ export default function RouteSelectorTab() {
                     >
                       {s.name}
                     </Text>
-                    {!!s.routes.length && (
+                    {(s.subtitle || s.routes?.length) && (
                       <Text
                         style={[styles.suggestionMeta, { color: C.mutedText }]}
                       >
-                        Lines: {s.routes.join(", ")}
+                        {s.subtitle ||
+                          (s.routes?.length ? "" : "Google Maps")}
                       </Text>
                     )}
                   </TouchableOpacity>
-                )}
-              />
+                ))}
+              </ScrollView>
             </View>
           )}
         </View>
@@ -436,19 +704,14 @@ export default function RouteSelectorTab() {
           </Text>
         </TouchableOpacity>
 
-        {stopsLoading && (
-          <Text style={[styles.mutedText, { color: C.mutedText }]}>
-            Loading stops for search…
-          </Text>
-        )}
-        {stopsError && (
-          <Text style={[styles.errorText, { color: C.danger }]}>
-            {stopsError}
-          </Text>
-        )}
         {planError && (
           <Text style={[styles.errorText, { color: C.danger }]}>
             {planError}
+          </Text>
+        )}
+        {searchMessage && (
+          <Text style={[styles.errorText, { color: C.danger }]}>
+            {searchMessage}
           </Text>
         )}
 
@@ -595,12 +858,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 2,
   },
+  inlineAction: {
+    marginTop: 4,
+  },
+  inlineActionText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
   input: {
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
     fontSize: 14,
+  },
+  inlineAction: {
+    marginTop: 4,
+  },
+  inlineActionText: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   suggestionsBox: {
     marginTop: 4,

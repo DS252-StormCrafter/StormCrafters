@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Dimensions,
   Keyboard,
+  ScrollView,
 } from "react-native";
 import MapView, {
   Marker,
@@ -18,6 +19,7 @@ import MapView, {
 } from "react-native-maps";
 import * as Location from "expo-location";
 import type { LocationObject } from "expo-location";
+import Constants from "expo-constants";
 import { http } from "../api/client";
 import { wsConnect } from "../api/ws";
 import BusMarker from "../components/BusMarker";
@@ -36,6 +38,20 @@ type Stop = {
   lat: number;
   lon: number;
   direction?: string;
+  distance?: number;
+};
+
+type LocationOption = {
+  id: string;
+  name: string;
+  subtitle?: string;
+  address?: string;
+  place_id?: string;
+  lat: number;
+  lon: number;
+  source: "stop" | "google_place" | "current";
+  route_id?: string | number;
+  route_name?: string;
   distance?: number;
 };
 
@@ -114,18 +130,22 @@ export default function MapTab() {
     longitudeDelta: 0.012,
   });
 
-  // 🔹 Stops (for search)
-  const [allStops, setAllStops] = useState<Stop[]>([]);
-  const [stopsLoading, setStopsLoading] = useState(false);
-  const [stopsError, setStopsError] = useState<string | null>(null);
+  // 🔹 Stops cache (for fallback when search API fails) + nearby chips
+  const [allStops, setAllStops] = useState<LocationOption[]>([]);
+  const [nearby, setNearby] = useState<LocationOption[]>([]);
 
-  const [nearby, setNearby] = useState<Stop[]>([]);
-
-  // 🔹 Search state (Google Maps-like)
+  // 🔹 Search state (Google Maps + campus stops)
   const [fromQuery, setFromQuery] = useState("");
   const [toQuery, setToQuery] = useState("");
-  const [fromStop, setFromStop] = useState<Stop | null>(null);
-  const [toStop, setToStop] = useState<Stop | null>(null);
+  const [fromStop, setFromStop] = useState<LocationOption | null>(null);
+  const [toStop, setToStop] = useState<LocationOption | null>(null);
+  const [fromSuggestions, setFromSuggestions] = useState<LocationOption[]>([]);
+  const [toSuggestions, setToSuggestions] = useState<LocationOption[]>([]);
+  const [searching, setSearching] = useState({ from: false, to: false });
+  const [plannerSearchAvailable, setPlannerSearchAvailable] = useState(true);
+  const [searchMessage, setSearchMessage] = useState<string | null>(null);
+  const skipFromSearchRef = useRef(false);
+  const skipToSearchRef = useRef(false);
 
   const [planResult, setPlanResult] = useState<any | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
@@ -145,11 +165,7 @@ export default function MapTab() {
   };
 
   const validLatLon = (s: any) =>
-    s &&
-    typeof s.lat === "number" &&
-    typeof s.lon === "number" &&
-    !isNaN(s.lat) &&
-    !isNaN(s.lon);
+    s && Number.isFinite(s.lat) && Number.isFinite(s.lon);
 
   // 🧭 Get user location once
   useEffect(() => {
@@ -184,39 +200,285 @@ export default function MapTab() {
     })();
   }, []);
 
-  // 📍 Load all stops for name search
+  const normalizeLocationOption = (item: any): LocationOption | null => {
+    const lat =
+      item?.lat ??
+      item?.latitude ??
+      item?.location?.lat ??
+      item?.location?.latitude;
+    const lon =
+      item?.lon ??
+      item?.lng ??
+      item?.longitude ??
+      item?.location?.lon ??
+      item?.location?.lng ??
+      item?.location?.longitude;
+
+    if (!validLatLon({ lat, lon })) return null;
+
+    const name = item?.name || item?.stop_name;
+    if (!name) return null;
+
+    return {
+      id:
+        item?.id ||
+        item?.stop_id ||
+        item?.place_id ||
+        `${name}_${lat}_${lon}`,
+      name,
+      subtitle:
+        item?.subtitle ||
+        item?.formatted_address ||
+        item?.vicinity ||
+        undefined,
+      address:
+        item?.formatted_address ||
+        item?.vicinity ||
+        item?.address ||
+        undefined,
+      place_id: item?.place_id,
+      lat,
+      lon,
+      source:
+        item?.source ||
+        (item?.place_id ? "google_place" : "stop"),
+      route_id: item?.route_id,
+      route_name: item?.route_name,
+      distance: item?.distance,
+    };
+  };
+
+  const dedupeLocations = (list: LocationOption[]): LocationOption[] => {
+    const map = new Map<string, LocationOption>();
+    list.forEach((loc) =>
+      map.set(
+        `${(loc.name || "").toLowerCase()}`,
+        loc
+      )
+    );
+    return Array.from(map.values());
+  };
+
+  // Cache campus stops for fallback search when planner/search is unavailable.
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
       try {
-        setStopsLoading(true);
         const { data } = await http.get("/routes/stops/all");
-
-        if (cancelled) return;
-
-        if (Array.isArray(data)) {
-          const filtered = data.filter((s: any) => validLatLon(s));
-          setAllStops(filtered);
-          setStopsError(null);
-        } else {
-          setAllStops([]);
-          setStopsError("Unexpected stops response");
-        }
+        if (!Array.isArray(data) || cancelled) return;
+        const normalized = data
+          .map((s: any) =>
+            normalizeLocationOption({
+              ...s,
+              name: s.stop_name,
+              subtitle: "Campus stop",
+              source: "stop",
+            })
+          )
+          .filter(
+            (x: LocationOption | null): x is LocationOption => !!x
+          );
+        setAllStops(dedupeLocations(normalized));
       } catch (err) {
-        console.warn("Stops load error:", err);
-        if (!cancelled) {
-          setStopsError("Failed to load stops");
-        }
-      } finally {
-        if (!cancelled) setStopsLoading(false);
+        console.warn("Stops cache load error:", err);
       }
     })();
-
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const filterFallbackStops = (
+    query: string,
+    max = 12
+  ): LocationOption[] => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return allStops
+      .filter((s) => {
+        const name = (s.name || "").toLowerCase();
+        const subtitle = (s.subtitle || "").toLowerCase();
+        return name.includes(q) || subtitle.includes(q);
+      })
+      .slice(0, max);
+  };
+
+  const resolveGoogleKey = () => {
+    const extraKey = (Constants.expoConfig as any)?.extra?.GOOGLE_MAPS_API_KEY;
+    const envKey = (process.env as any)?.GOOGLE_MAPS_API_KEY;
+    return extraKey || envKey || "";
+  };
+
+  // Places Text Search fallback (REST) when backend planner search fails
+  const searchGooglePlacesDirect = async (
+    query: string
+  ): Promise<LocationOption[]> => {
+    const key = resolveGoogleKey();
+    if (!key) return [];
+
+    try {
+      const centerLat = userLoc?.coords?.latitude ?? 13.0205;
+      const centerLon = userLoc?.coords?.longitude ?? 77.5655;
+
+      const url = new URL(
+        "https://maps.googleapis.com/maps/api/place/textsearch/json"
+      );
+      url.searchParams.set("query", query);
+      url.searchParams.set("key", key);
+      url.searchParams.set("location", `${centerLat},${centerLon}`);
+      url.searchParams.set("radius", "5000");
+
+      const resp = await fetch(url.toString());
+      if (!resp.ok) return [];
+      const json = await resp.json();
+      if (json.status !== "OK" && json.status !== "ZERO_RESULTS") return [];
+
+      const results = (json.results || []).slice(0, 8);
+      return results
+        .filter(
+          (r: any) =>
+            r?.geometry?.location &&
+            typeof r.geometry.location.lat === "number" &&
+            typeof r.geometry.location.lng === "number"
+        )
+        .map((r: any) => ({
+          id: r.place_id || r.name,
+          name: r.name || query,
+          subtitle: r.formatted_address || "Google Maps",
+          address: r.formatted_address || undefined,
+          lat: r.geometry.location.lat,
+          lon: r.geometry.location.lng,
+          source: "google_place" as const,
+          place_id: r.place_id,
+        })) as LocationOption[];
+    } catch (err) {
+      console.warn("Direct Google Places search failed:", err);
+      return [];
+    }
+  };
+
+  const runSearch = async (
+    query: string,
+    setter: (list: LocationOption[]) => void,
+    key: "from" | "to"
+  ) => {
+    const q = query.trim();
+    if (!q) {
+      setter([]);
+      return;
+    }
+
+    setSearching((prev) => ({ ...prev, [key]: true }));
+    try {
+      let results: LocationOption[] = [];
+      setSearchMessage(null);
+
+      if (plannerSearchAvailable) {
+        try {
+          const params: Record<string, any> = { q };
+          if (userLoc?.coords) {
+            params.lat = userLoc.coords.latitude;
+            params.lon = userLoc.coords.longitude;
+          }
+
+          const { data } = await http.get("/planner/search", { params });
+          results = Array.isArray(data?.results)
+            ? data.results
+                .map(normalizeLocationOption)
+                .filter(
+                  (x: LocationOption | null): x is LocationOption => !!x
+                )
+            : [];
+          if (results.length) setPlannerSearchAvailable(true);
+        } catch (err: any) {
+          console.warn("Search error (planner endpoint):", err);
+          setPlannerSearchAvailable(false); // avoid repeated 404 spam
+        }
+      }
+
+      if (!results.length) {
+        const places = await searchGooglePlacesDirect(q);
+        if (places.length) {
+          results = places;
+        }
+      }
+
+      if (!results.length) {
+        results = filterFallbackStops(q);
+      } else if (results.length < 8) {
+        // Prefer campus stops first, then places
+        const campus = filterFallbackStops(q, 8);
+        const merged = dedupeLocations([
+          ...campus,
+          ...results,
+          ...filterFallbackStops(q, 8 - results.length),
+        ]);
+        results = merged;
+      } else {
+        // Reorder: campus (fallback) first, then places
+        const campus = filterFallbackStops(q, results.length);
+        results = dedupeLocations([...campus, ...results]);
+      }
+
+      if (!results.length) {
+        setSearchMessage("No results found. Try a different name.");
+      }
+
+      setter(dedupeLocations(results));
+    } finally {
+      setSearching((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+// 🔎 Debounced search for FROM
+  useEffect(() => {
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      if (cancelled) return;
+      if (skipFromSearchRef.current) {
+        skipFromSearchRef.current = false;
+        setFromSuggestions([]);
+        return;
+      }
+      if (!fromQuery.trim() || fromQuery.trim().length < 2) {
+        setFromSuggestions([]);
+        return;
+      }
+      runSearch(fromQuery, (list) => {
+        if (!cancelled) setFromSuggestions(list);
+      }, "from");
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [fromQuery, userLoc]);
+
+  // 🔎 Debounced search for TO
+  useEffect(() => {
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      if (cancelled) return;
+      if (skipToSearchRef.current) {
+        skipToSearchRef.current = false;
+        setToSuggestions([]);
+        return;
+      }
+      if (!toQuery.trim() || toQuery.trim().length < 2) {
+        setToSuggestions([]);
+        return;
+      }
+      runSearch(toQuery, (list) => {
+        if (!cancelled) setToSuggestions(list);
+      }, "to");
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [toQuery, userLoc]);
 
   // 🧭 Nearby stops based on user location
   useEffect(() => {
@@ -229,9 +491,19 @@ export default function MapTab() {
           `/stops/nearby?lat=${latitude}&lon=${longitude}&radius=250`
         );
         if (Array.isArray(data?.stops)) {
-          setNearby(
-            data.stops.filter((s: any) => validLatLon(s)) as Stop[]
-          );
+          const normalized = data.stops
+            .map((s: any) =>
+            normalizeLocationOption({
+              ...s,
+              name: s.stop_name,
+              subtitle: "Campus stop",
+              source: "stop",
+            })
+          )
+            .filter(
+              (x: LocationOption | null): x is LocationOption => !!x
+            );
+          setNearby(normalized);
         }
       } catch (err) {
         console.warn("Nearby stops error:", err);
@@ -264,62 +536,98 @@ export default function MapTab() {
     };
   }, []);
 
-  const filterStops = (query: string): Stop[] => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    return allStops
-      .filter((s) => {
-        const name = (s.stop_name || "").toLowerCase();
-        const route = (s.route_name || "").toLowerCase();
-        return name.includes(q) || route.includes(q);
-      })
-      .slice(0, 8);
-  };
+  const labelForLocation = (loc: LocationOption) =>
+    loc.subtitle ? `${loc.name} • ${loc.subtitle}` : loc.name;
 
-  const fromSuggestions = filterStops(fromQuery);
-  const toSuggestions = filterStops(toQuery);
-
-  const selectFromStop = (stop: Stop) => {
+  const selectFromStop = (stop: LocationOption) => {
+    skipFromSearchRef.current = true;
     setFromStop(stop);
-    setFromQuery(
-      stop.route_name
-        ? `${stop.stop_name} (${stop.route_name})`
-        : stop.stop_name
-    );
+    setFromQuery(labelForLocation(stop));
+    setFromSuggestions([]);
+    setSearchMessage(null);
     setPlanResult(null);
     setPlanError(null);
     Keyboard.dismiss();
-  };
 
-  const selectToStop = (stop: Stop) => {
-    setToStop(stop);
-    setToQuery(
-      stop.route_name
-        ? `${stop.stop_name} (${stop.route_name})`
-        : stop.stop_name
-    );
-    setPlanResult(null);
-    setPlanError(null);
-    Keyboard.dismiss();
-  };
-
-  const handleNearbyTap = (stop: Stop) => {
-    // If "From" is empty, fill that first; otherwise set "To"
-    if (!fromStop) {
-      selectFromStop(stop);
-    } else {
-      selectToStop(stop);
+    // Center the map on the selected place/location
+    if (validLatLon(stop)) {
+      setRegion((prev) => ({
+        ...prev,
+        latitude: stop.lat,
+        longitude: stop.lon,
+      }));
     }
+
+    // Add to cached stops so it appears in future searches
+    setAllStops((prev) =>
+      dedupeLocations([
+        ...prev,
+        {
+          ...stop,
+          source: stop.source || "google_place",
+          subtitle: stop.subtitle || stop.address || "Google Maps",
+        },
+      ])
+    );
+  };
+
+  const selectToStop = (stop: LocationOption) => {
+    skipToSearchRef.current = true;
+    setToStop(stop);
+    setToQuery(labelForLocation(stop));
+    setToSuggestions([]);
+    setSearchMessage(null);
+    setPlanResult(null);
+    setPlanError(null);
+    Keyboard.dismiss();
+
+    if (validLatLon(stop)) {
+      setRegion((prev) => ({
+        ...prev,
+        latitude: stop.lat,
+        longitude: stop.lon,
+      }));
+    }
+
+    setAllStops((prev) =>
+      dedupeLocations([
+        ...prev,
+        {
+          ...stop,
+          source: stop.source || "google_place",
+          subtitle: stop.subtitle || stop.address || "Google Maps",
+        },
+      ])
+    );
+  };
+
+  const handleNearbyTap = (stop: LocationOption) => {
+    if (!fromStop) selectFromStop(stop);
+    else selectToStop(stop);
+  };
+
+  const useCurrentLocation = () => {
+    if (!userLoc?.coords) return;
+    const { latitude, longitude } = userLoc.coords;
+    const currentLoc: LocationOption = {
+      id: "current_location",
+      name: "Current location",
+      subtitle: "Using GPS",
+      lat: latitude,
+      lon: longitude,
+      source: "current",
+    };
+    selectFromStop(currentLoc);
   };
 
   const planRoute = async () => {
     if (!fromStop || !toStop) {
-      setPlanError("Please select both origin and destination stops.");
+      setPlanError("Please select both origin and destination locations.");
       return;
     }
 
     if (!validLatLon(fromStop) || !validLatLon(toStop)) {
-      setPlanError("Selected stops are missing coordinates.");
+      setPlanError("Selected locations are missing coordinates.");
       return;
     }
 
@@ -346,7 +654,7 @@ export default function MapTab() {
       });
     } catch (err) {
       console.warn("Planner error:", err);
-      setPlanError("Unable to find route between these stops.");
+      setPlanError("Unable to find a route between these locations.");
     } finally {
       setPlanLoading(false);
     }
@@ -419,22 +727,37 @@ export default function MapTab() {
             }}
             placeholder="Search for a stop or building name"
           />
+          {userLoc?.coords && (
+            <TouchableOpacity
+              style={styles.inlineAction}
+              onPress={useCurrentLocation}
+            >
+              <Text style={styles.inlineActionText}>
+                Use current location
+              </Text>
+            </TouchableOpacity>
+          )}
           {fromSuggestions.length > 0 && (
             <View style={styles.suggestionsBox}>
-              {fromSuggestions.map((s) => (
-                <TouchableOpacity
-                  key={`${s.stop_name}_${s.route_id}_${s.lat}_${s.lon}`}
-                  style={styles.suggestionItem}
-                  onPress={() => selectFromStop(s)}
-                >
-                  <Text style={styles.suggestionTitle}>
-                    {s.stop_name}
-                  </Text>
-                  <Text style={styles.suggestionMeta}>
-                    {s.route_name || s.route_id || "Route"}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                {fromSuggestions.map((s) => (
+                  <TouchableOpacity
+                    key={`${s.id}_${s.lat}_${s.lon}_from`}
+                    style={styles.suggestionItem}
+                    onPress={() => selectFromStop(s)}
+                  >
+                    <Text style={styles.suggestionTitle}>
+                      {s.name}
+                    </Text>
+                    <Text style={styles.suggestionMeta}>
+                      {s.subtitle ||
+                        (s.source === "google_place"
+                          ? "Google Maps"
+                          : "Campus stop")}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
           )}
         </View>
@@ -454,20 +777,25 @@ export default function MapTab() {
           />
           {toSuggestions.length > 0 && (
             <View style={styles.suggestionsBox}>
-              {toSuggestions.map((s) => (
-                <TouchableOpacity
-                  key={`${s.stop_name}_${s.route_id}_${s.lat}_${s.lon}_to`}
-                  style={styles.suggestionItem}
-                  onPress={() => selectToStop(s)}
-                >
-                  <Text style={styles.suggestionTitle}>
-                    {s.stop_name}
-                  </Text>
-                  <Text style={styles.suggestionMeta}>
-                    {s.route_name || s.route_id || "Route"}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                {toSuggestions.map((s) => (
+                  <TouchableOpacity
+                    key={`${s.id}_${s.lat}_${s.lon}_to`}
+                    style={styles.suggestionItem}
+                    onPress={() => selectToStop(s)}
+                  >
+                    <Text style={styles.suggestionTitle}>
+                      {s.name}
+                    </Text>
+                    <Text style={styles.suggestionMeta}>
+                      {s.subtitle ||
+                        (s.source === "google_place"
+                          ? "Google Maps"
+                          : "Campus stop")}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
           )}
         </View>
@@ -475,12 +803,12 @@ export default function MapTab() {
         {/* Nearby stops chips (kept from old PlannerTab, but smarter) */}
         {nearby.length > 0 && (
           <View style={styles.nearbyContainer}>
-            <Text style={styles.nearbyLabel}>Nearby stops</Text>
-            <FlatList
-              data={nearby}
-              horizontal
-              keyExtractor={(item, idx) =>
-                `${item.stop_name}_${item.route_id}_${idx}`
+          <Text style={styles.nearbyLabel}>Nearby stops</Text>
+          <FlatList
+            data={nearby}
+            horizontal
+            keyExtractor={(item, idx) =>
+              `${item.id || item.name}_${idx}`
               }
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -488,7 +816,7 @@ export default function MapTab() {
                   onPress={() => handleNearbyTap(item)}
                 >
                   <Text style={{ fontSize: 12 }}>
-                    {item.stop_name} ({item.route_name}) •{" "}
+                    {item.name} •{" "}
                     {item.distance != null
                       ? `${Math.round(item.distance)} m`
                       : ""}
@@ -508,17 +836,11 @@ export default function MapTab() {
             {planLoading ? "Planning…" : "Plan trip"}
           </Text>
         </TouchableOpacity>
-
-        {stopsLoading && (
-          <Text style={styles.muted}>
-            Loading stops for search…
-          </Text>
-        )}
-        {stopsError && (
-          <Text style={styles.errorText}>{stopsError}</Text>
-        )}
         {planError && (
           <Text style={styles.errorText}>{planError}</Text>
+        )}
+        {searchMessage && (
+          <Text style={styles.errorText}>{searchMessage}</Text>
         )}
       </View>
 
@@ -538,7 +860,7 @@ export default function MapTab() {
               latitude: fromStop.lat,
               longitude: fromStop.lon,
             }}
-            title={`From: ${fromStop.stop_name}`}
+            title={`From: ${fromStop.name || "Origin"}`}
             pinColor="#000"
           />
         )}
@@ -548,7 +870,7 @@ export default function MapTab() {
               latitude: toStop.lat,
               longitude: toStop.lon,
             }}
-            title={`To: ${toStop.stop_name}`}
+            title={`To: ${toStop.name || "Destination"}`}
             pinColor="#000"
           />
         )}
@@ -684,6 +1006,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 2,
     color: "#4b5563",
+  },
+  inlineAction: {
+    marginTop: 4,
+  },
+  inlineActionText: {
+    color: "#2563eb",
+    fontSize: 12,
+    fontWeight: "600",
   },
   input: {
     borderWidth: 1,
