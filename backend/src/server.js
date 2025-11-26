@@ -20,6 +20,23 @@ import fs from "fs";
 import path from "path";
 import "./index.js"; // <-- loads the Express + WS server
 
+// Silence non-critical console logs in production deployments
+function silenceConsoleInProd() {
+  const shouldSilence =
+    process.env.NODE_ENV === "production" ||
+    process.env.DISABLE_CONSOLE_LOGS === "1";
+
+  if (!shouldSilence) return;
+
+  const noop = () => {};
+  console.log = noop;
+  console.info = noop;
+  console.debug = noop;
+  console.warn = noop;
+  // Keep console.error for critical issues.
+}
+silenceConsoleInProd();
+
 // ---------------------------------------------------------------------------
 // 🔒 CONDITIONAL ROUTE SEEDING (runs once if Firestore empty)
 // ---------------------------------------------------------------------------
