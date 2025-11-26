@@ -25,8 +25,6 @@ import SettingsScreen from "../screens/SettingsScreen";
 
 import ScheduleTab from "../screens/ScheduleTab";
 
-import DriverMapTab from "../screens/DriverMapTab";
-import DriverOccupancyTab from "../screens/DriverOccupancyTab";
 import DriverAlertsTab from "../screens/DriverAlertsTab";
 
 /* Screens */
@@ -89,14 +87,10 @@ function DriverTabs() {
           borderTopColor: C.border,
         },
         tabBarIcon: ({ color, size }) => {
-          if (route.name === "DriverMap")
-            return <Ionicons name="map" size={size} color={color} />;
-          if (route.name === "Occupancy")
-            return <Ionicons name="people" size={size} color={color} />;
+          if (route.name === "Dashboard")
+            return <Ionicons name="speedometer" size={size} color={color} />;
           if (route.name === "Alerts")
-            return (
-              <Ionicons name="alert-circle" size={size} color={color} />
-            );
+            return <Ionicons name="alert-circle" size={size} color={color} />;
           return <Ionicons name="settings" size={size} color={color} />;
         },
       })}
@@ -105,7 +99,6 @@ function DriverTabs() {
         name="Dashboard"
         component={require("../screens/DriverDashboardTab").default}
       />
-      <Tab.Screen name="Occupancy" component={DriverOccupancyTab} />
       <Tab.Screen name="Alerts" component={DriverAlertsTab} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>

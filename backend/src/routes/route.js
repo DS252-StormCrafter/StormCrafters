@@ -79,6 +79,88 @@ function normalizeDirections(directions = {}) {
   return { to: toN, fro: froN };
 }
 
+function normalizeTimeStr(raw) {
+  if (!raw && raw !== 0) return null;
+  const m = String(raw).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return `${h.toString().padStart(2, "0")}:${min
+    .toString()
+    .padStart(2, "0")}`;
+}
+
+function normalizeSchedule(schedule = []) {
+  const rows = Array.isArray(schedule) ? schedule : [];
+  const seen = new Set();
+  return rows
+    .map((r, idx) => {
+      const dirRaw = (r.direction || r.dir || "to").toString().toLowerCase();
+      const direction = dirRaw === "fro" ? "fro" : "to";
+      const daysArr = Array.isArray(r.days)
+        ? r.days.map((d) => String(d || "").trim()).filter(Boolean)
+        : [];
+      const startTime =
+        normalizeTimeStr(
+          r.startTime ||
+            r.start_time ||
+            r.departTime ||
+            r.depart_time ||
+            r.time
+        ) || null;
+      const endTime =
+        normalizeTimeStr(
+          r.endTime || r.end_time || r.arrivalTime || r.arrival_time
+        ) || null;
+      const id =
+        r.id ||
+        r.schedule_id ||
+        r.trip_id ||
+        r.tripNumber ||
+        `sch_${idx}_${genId().slice(0, 6)}`;
+      if (!startTime) return null;
+
+      return {
+        id: String(id),
+        direction,
+        startTime,
+        endTime,
+        note: r.note || r.remark || r.label || "",
+        sequence: Number.isFinite(r.sequence) ? Number(r.sequence) : idx,
+        ...(daysArr.length ? { days: daysArr } : {}),
+      };
+    })
+    .filter(Boolean)
+    .filter((row) => {
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.direction !== b.direction) return a.direction === "to" ? -1 : 1;
+      return a.startTime.localeCompare(b.startTime);
+    })
+    .map((row, idx) => ({
+      ...row,
+      sequence: Number.isFinite(row.sequence) ? row.sequence : idx,
+    }));
+}
+
+async function persistSchedule(db, routeId, schedule) {
+  const docRef = db.collection("routes").doc(routeId);
+  await docRef.set(
+    {
+      schedule,
+      schedule_updated_at: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+
+  broadcastWS("schedule_update", { route_id: routeId, schedule });
+}
+
 /**
  * Compute reservation summary (waiting_count per stop sequence)
  * used both by the HTTP GET and by WS broadcasts.
@@ -268,6 +350,7 @@ export default function routeRoutes(db) {
             d.end?.name ||
             "Unknown",
           directions: d.directions || {},
+          schedule: normalizeSchedule(d.schedule || []),
         };
       });
       res.json(Array.isArray(routes) ? routes : []);
@@ -388,6 +471,154 @@ export default function routeRoutes(db) {
       res.status(500).json({ error: "Failed to fetch active drivers" });
     }
   });
+
+  // ----------------------------------------------------------------------------
+  // SCHEDULES
+  // ----------------------------------------------------------------------------
+  router.get("/:id/schedule", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const doc = await db.collection("routes").doc(id).get();
+      if (!doc.exists) return res.status(404).json({ error: "Route not found" });
+      const d = doc.data() || {};
+      const schedule = normalizeSchedule(d.schedule || []);
+      res.json({ route_id: id, schedule, schedule_updated_at: d.schedule_updated_at || null });
+    } catch (err) {
+      console.error("❌ Schedule fetch error:", err);
+      res.status(500).json({ error: "Failed to fetch schedule" });
+    }
+  });
+
+  router.put("/:id/schedule", authenticate, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const incoming = req.body?.schedule ?? req.body?.entries ?? req.body;
+      if (!Array.isArray(incoming)) {
+        return res.status(400).json({ error: "schedule array is required" });
+      }
+
+      const docRef = db.collection("routes").doc(id);
+      const doc = await docRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "Route not found" });
+
+      const schedule = normalizeSchedule(incoming);
+      await persistSchedule(db, id, schedule);
+      res.json({ route_id: id, schedule });
+    } catch (err) {
+      console.error("❌ Schedule save error:", err);
+      res.status(500).json({
+        error: "Failed to save schedule",
+        details: err?.message || err,
+      });
+    }
+  });
+
+  router.post("/:id/schedule", authenticate, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const entryRaw = req.body?.entry ?? req.body;
+      const [entry] = normalizeSchedule([
+        {
+          ...entryRaw,
+          id:
+            entryRaw?.id ||
+            entryRaw?.schedule_id ||
+            entryRaw?.trip_id ||
+            `sch_${genId().slice(0, 6)}`,
+        },
+      ]);
+
+      if (!entry) {
+        return res.status(400).json({ error: "Valid startTime is required" });
+      }
+
+      const docRef = db.collection("routes").doc(id);
+      const doc = await docRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "Route not found" });
+
+      const existing = normalizeSchedule(doc.data()?.schedule || []);
+      const merged = existing
+        .filter((s) => s.id !== entry.id)
+        .concat([{ ...entry, sequence: Number.isFinite(entry.sequence) ? entry.sequence : existing.length }])
+        .sort((a, b) => {
+          if (a.direction !== b.direction) return a.direction === "to" ? -1 : 1;
+          return a.startTime.localeCompare(b.startTime);
+        })
+        .map((s, idx) => ({ ...s, sequence: idx }));
+
+      await persistSchedule(db, id, merged);
+      res.json({ route_id: id, schedule: merged });
+    } catch (err) {
+      console.error("❌ Schedule add error:", err);
+      res.status(500).json({ error: "Failed to add schedule entry" });
+    }
+  });
+
+  router.patch(
+    "/:id/schedule/:scheduleId",
+    authenticate,
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const { id, scheduleId } = req.params;
+        const docRef = db.collection("routes").doc(id);
+        const doc = await docRef.get();
+        if (!doc.exists) return res.status(404).json({ error: "Route not found" });
+
+        const existing = normalizeSchedule(doc.data()?.schedule || []);
+        const idx = existing.findIndex((s) => s.id === scheduleId);
+        if (idx < 0) {
+          return res.status(404).json({ error: "Schedule entry not found" });
+        }
+
+        const [updated] = normalizeSchedule([
+          { ...existing[idx], ...req.body, id: scheduleId },
+        ]);
+        if (!updated) {
+          return res.status(400).json({ error: "Valid startTime is required" });
+        }
+
+        const next = existing
+          .map((s, i) => (i === idx ? updated : s))
+          .sort((a, b) => {
+            if (a.direction !== b.direction) return a.direction === "to" ? -1 : 1;
+            return a.startTime.localeCompare(b.startTime);
+          })
+          .map((s, i) => ({ ...s, sequence: i }));
+
+        await persistSchedule(db, id, next);
+        res.json({ route_id: id, schedule: next });
+      } catch (err) {
+        console.error("❌ Schedule update error:", err);
+        res.status(500).json({ error: "Failed to update schedule entry" });
+      }
+    }
+  );
+
+  router.delete(
+    "/:id/schedule/:scheduleId",
+    authenticate,
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const { id, scheduleId } = req.params;
+        const docRef = db.collection("routes").doc(id);
+        const doc = await docRef.get();
+        if (!doc.exists) return res.status(404).json({ error: "Route not found" });
+
+        const existing = normalizeSchedule(doc.data()?.schedule || []);
+        const next = existing
+          .filter((s) => s.id !== scheduleId)
+          .map((s, idx) => ({ ...s, sequence: idx }));
+
+        await persistSchedule(db, id, next);
+        res.json({ route_id: id, schedule: next });
+      } catch (err) {
+        console.error("❌ Schedule delete error:", err);
+        res.status(500).json({ error: "Failed to delete schedule entry" });
+      }
+    }
+  );
 
   // ----------------------------------------------------------------------------
   // USER: Create a reservation for a route (source → destination stops)
@@ -781,6 +1012,8 @@ export default function routeRoutes(db) {
         route_name: routeName,
         directions: { to: toStops, fro: froStops },
         total_stops: toStops.length + froStops.length,
+        schedule: normalizeSchedule(d.schedule || []),
+        schedule_updated_at: d.schedule_updated_at || null,
       });
     } catch (err) {
       console.error("❌ Route detail fetch error:", err);

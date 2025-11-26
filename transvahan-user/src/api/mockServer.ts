@@ -16,11 +16,21 @@ const routes: Route[] = [
 { id: 'r1', name: 'Main Gate ↔ CSA', stops: [
 { id: 's1', name: 'Main Gate', lat: 13.014, lng: 77.567 },
 { id: 's2', name: 'CSA', lat: 13.021, lng: 77.566 },
-], schedule: ['09:00','09:20','09:40','10:00'] },
+], schedule: [
+  { id: 'sch-r1-1', direction: 'to', startTime: '09:00' },
+  { id: 'sch-r1-2', direction: 'to', startTime: '09:20' },
+  { id: 'sch-r1-3', direction: 'to', startTime: '09:40' },
+  { id: 'sch-r1-4', direction: 'fro', startTime: '10:00' },
+] },
 { id: 'r2', name: 'Hostel ↔ Library', stops: [
 { id: 's3', name: 'Hostel', lat: 13.018, lng: 77.573 },
 { id: 's4', name: 'Library', lat: 13.016, lng: 77.566 },
-], schedule: ['09:10','09:30','09:50','10:10'] },
+], schedule: [
+  { id: 'sch-r2-1', direction: 'to', startTime: '09:10' },
+  { id: 'sch-r2-2', direction: 'fro', startTime: '09:30' },
+  { id: 'sch-r2-3', direction: 'to', startTime: '09:50' },
+  { id: 'sch-r2-4', direction: 'fro', startTime: '10:10' },
+] },
 ];
 
 

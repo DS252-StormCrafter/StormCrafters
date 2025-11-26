@@ -12,4 +12,5 @@ getRoutes(): Promise<Route[]>;
 getVehicles(): Promise<Vehicle[]>;
 getNextArrivals(): Promise<NextArrival[]>;
 subscribeVehicles(cb: (v: Vehicle) => void): () => void; // unsubscribe
+ subscribeSchedules?(cb: (msg: any) => void): () => void | Promise<() => void>;
 };

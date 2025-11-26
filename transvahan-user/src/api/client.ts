@@ -90,6 +90,7 @@ export const apiClient: API & {
   }) => Promise<any>;
   getDriverAssignment?: () => Promise<any>;
   subscribeReservations?: (cb: (msg: any) => void) => Promise<() => void>;
+  subscribeSchedules?: (cb: (msg: any) => void) => Promise<() => void>;
 } = {
   async login(body: LoginRequest) {
     const { data } = await http.post<LoginResponse>(endpoints.login, body);
@@ -174,6 +175,16 @@ export const apiClient: API & {
     const disconnect = await wsConnect((msg) => {
       if (msg.type === "reservation_update" || msg.type === "heat_update") {
         cb(msg);
+      }
+    });
+    return disconnect;
+  },
+
+  async subscribeSchedules(cb) {
+    console.log("🗓️ [WS] Subscribing to schedules via ws.ts ...");
+    const disconnect = await wsConnect((msg) => {
+      if (msg.type === "schedule_update") {
+        cb(msg.data || msg);
       }
     });
     return disconnect;

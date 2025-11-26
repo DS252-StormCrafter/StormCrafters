@@ -30,3 +30,13 @@
 .btn.secondary { background: #6b7280; color: #fff; }
 .btn.danger { background: #ef4444; color: #fff; }
 .btn.xs { padding: 4px 8px; font-size: 12px; }
+
+.schedule-panel { margin-top: 14px; border: 1px solid #e5e7eb; background: #f8fafc; padding: 10px; border-radius: 10px; }
+.schedule-header-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.schedule-actions { display: flex; align-items: center; gap: 6px; }
+.schedule-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.schedule-row { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #e5e7eb; padding: 8px; border-radius: 8px; }
+.schedule-row select,
+.schedule-row input[type="time"],
+.schedule-row input[type="text"] { padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; }
+.pill { background: #f59e0b; color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }

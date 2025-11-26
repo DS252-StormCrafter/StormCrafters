@@ -115,3 +115,38 @@ export async function geocodeName(q: string) {
     type: x.type,
   }));
 }
+
+// -------------------- Schedules --------------------
+
+export async function getSchedule(routeId: string) {
+  const res = await api.get(`/routes/${routeId}/schedule`);
+  const raw = res.data?.schedule ?? res.data;
+  return Array.isArray(raw) ? raw : [];
+}
+
+export async function saveSchedule(routeId: string, schedule: any[]) {
+  const res = await api.put(`/routes/${routeId}/schedule`, { schedule });
+  return res.data?.schedule ?? [];
+}
+
+export async function createScheduleEntry(routeId: string, entry: any) {
+  const res = await api.post(`/routes/${routeId}/schedule`, entry);
+  return res.data?.schedule ?? [];
+}
+
+export async function updateScheduleEntry(
+  routeId: string,
+  scheduleId: string,
+  entry: any
+) {
+  const res = await api.patch(
+    `/routes/${routeId}/schedule/${scheduleId}`,
+    entry
+  );
+  return res.data?.schedule ?? [];
+}
+
+export async function deleteScheduleEntry(routeId: string, scheduleId: string) {
+  const res = await api.delete(`/routes/${routeId}/schedule/${scheduleId}`);
+  return res.data?.schedule ?? [];
+}

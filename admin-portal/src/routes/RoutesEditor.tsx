@@ -13,6 +13,7 @@ import {
   deleteStop as apiDeleteStop,
   addStop as apiAddStop,
   updateStop as apiUpdateStop,
+  saveSchedule as apiSaveSchedule,
 } from "../services/routes";
 import { fetchAssignments, Assignment } from "../services/assignments";
 import { fetchVehicles } from "../services/admin";
@@ -28,12 +29,6 @@ type Stop = {
   [k: string]: any;
 };
 
-type RouteDoc = {
-  id: string;
-  route_name: string;
-  directions: { to: Stop[]; fro: Stop[] };
-};
-
 type AssignmentStatus = {
   route_id: string;
   direction: DirectionKey;
@@ -47,6 +42,22 @@ type AssignmentStatus = {
   capacity?: number;
   lat?: number;
   lon?: number;
+};
+
+type ScheduleEntry = {
+  id: string;
+  direction: DirectionKey;
+  startTime: string;
+  endTime?: string | null;
+  note?: string;
+  sequence?: number;
+};
+
+type RouteDoc = {
+  id: string;
+  route_name: string;
+  directions: { to: Stop[]; fro: Stop[] };
+  schedule?: ScheduleEntry[];
 };
 
 function emptyRoute(name = "New Line"): RouteDoc {
@@ -80,12 +91,78 @@ function toStops(arr: any[], idPrefix: string): Stop[] {
   }));
 }
 
+function normalizeTimeInput(raw: any): string {
+  if (raw === null || raw === undefined) return "";
+  const m = String(raw).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return "";
+  const h = Math.min(Math.max(parseInt(m[1], 10), 0), 23);
+  const min = Math.min(Math.max(parseInt(m[2], 10), 0), 59);
+  return `${h.toString().padStart(2, "0")}:${min
+    .toString()
+    .padStart(2, "0")}`;
+}
+
+function normalizeScheduleEntries(raw: any[]): ScheduleEntry[] {
+  const rows = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+  return rows
+    .map((r, idx) => {
+      const dir =
+        (r.direction || r.dir || "to").toString().toLowerCase() === "fro"
+          ? "fro"
+          : "to";
+      const startTime =
+        normalizeTimeInput(
+          r.startTime ||
+            r.start_time ||
+            r.departTime ||
+            r.depart_time ||
+            r.time
+        ) || "";
+      const endTime =
+        normalizeTimeInput(
+          r.endTime || r.end_time || r.arrivalTime || r.arrival_time
+        ) || "";
+      if (!startTime) return null;
+      const id =
+        r.id ||
+        r.schedule_id ||
+        r.trip_id ||
+        `sch-${idx}-${crypto.randomUUID?.() ||
+          Math.random().toString(36).slice(2, 8)}`;
+      return {
+        id: String(id),
+        direction: dir as DirectionKey,
+        startTime,
+        endTime: endTime || null,
+        note: r.note || r.label || r.remark || "",
+        sequence: Number.isFinite(r.sequence) ? Number(r.sequence) : idx,
+      };
+    })
+    .filter((r): r is ScheduleEntry => !!r)
+    .filter((r) => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.direction !== b.direction) return a.direction === "to" ? -1 : 1;
+      return a.startTime.localeCompare(b.startTime);
+    })
+    .map((r, i) => ({ ...r, sequence: i }));
+}
+
 function normalize(full: any): RouteDoc {
   const id = String(full.id ?? "");
   const name = full.route_name || full.line || full.routeName || id || "Route";
   const to = toStops(full?.directions?.to || [], `${id}-to`);
   const fro = toStops(full?.directions?.fro || [], `${id}-fro`);
-  return { id, route_name: name, directions: { to, fro } };
+  return {
+    id,
+    route_name: name,
+    directions: { to, fro },
+    schedule: normalizeScheduleEntries(full?.schedule || []),
+  };
 }
 
 const PALETTE = [
@@ -136,6 +213,9 @@ export default function RoutesEditor() {
   const [assignError, setAssignError] = useState<string | null>(null);
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
+  const [scheduleDirty, setScheduleDirty] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
 
   const handleVehicleData = useCallback((rows: any[]) => {
     setLiveVehicles(rows);
@@ -189,7 +269,10 @@ export default function RoutesEditor() {
       setLoading(true);
       try {
         const full = await getRoute(selectedId);
-        setModel(normalize(full));
+        const n = normalize(full);
+        setModel(n);
+        setSchedule(normalizeScheduleEntries(full?.schedule || []));
+        setScheduleDirty(false);
       } finally {
         setLoading(false);
       }
@@ -304,6 +387,8 @@ export default function RoutesEditor() {
       route_name: trimmed,
       directions: { to: [], fro: [] },
     });
+    setSchedule([]);
+    setScheduleDirty(false);
 
     setOverlays((o) => [
       ...o,
@@ -328,6 +413,8 @@ export default function RoutesEditor() {
     setOverlays((o) => o.filter((x) => x.id !== model.id));
     setModel(emptyRoute());
     setSelectedId(next[0]?.id || "");
+    setSchedule([]);
+    setScheduleDirty(false);
   };
 
   const renameLine = async () => {
@@ -566,6 +653,82 @@ export default function RoutesEditor() {
     if (fromIndex < 0) return;
     const targetIndex = fromIndex + delta;
     moveStopToIndex(stop_id, targetIndex);
+  };
+
+  const sortedSchedule = useMemo(
+    () =>
+      [...schedule].sort((a, b) => {
+        if (a.direction !== b.direction) return a.direction === "to" ? -1 : 1;
+        return a.startTime.localeCompare(b.startTime);
+      }),
+    [schedule]
+  );
+
+  const addScheduleRow = () => {
+    const newEntry: ScheduleEntry = {
+      id:
+        (crypto as any).randomUUID?.() ||
+        `sch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      direction: dir,
+      startTime: "08:00",
+      endTime: "",
+      note: "",
+      sequence: sortedSchedule.length,
+    };
+    setSchedule((rows) => [...rows, newEntry]);
+    setScheduleDirty(true);
+  };
+
+  const updateScheduleRow = (id: string, patch: Partial<ScheduleEntry>) => {
+    setSchedule((rows) =>
+      rows.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              ...patch,
+              startTime:
+                patch.startTime !== undefined
+                  ? normalizeTimeInput(patch.startTime)
+                  : r.startTime,
+              endTime:
+                patch.endTime !== undefined
+                  ? normalizeTimeInput(patch.endTime)
+                  : r.endTime,
+            }
+          : r
+      )
+    );
+    setScheduleDirty(true);
+  };
+
+  const removeScheduleRow = (id: string) => {
+    setSchedule((rows) => rows.filter((r) => r.id !== id));
+    setScheduleDirty(true);
+  };
+
+  const persistSchedule = async () => {
+    const routeId = model.id || selectedId;
+    if (!routeId) {
+      alert("Select or create a line before saving the schedule.");
+      return;
+    }
+    if (schedule.some((s) => !s.startTime)) {
+      alert("Every trip needs a start time (HH:MM).");
+      return;
+    }
+    setScheduleSaving(true);
+    try {
+      const clean = normalizeScheduleEntries(schedule);
+      const saved = await apiSaveSchedule(routeId, clean);
+      setSchedule(normalizeScheduleEntries(saved));
+      setScheduleDirty(false);
+      alert("Schedule saved");
+    } catch (err: any) {
+      console.error("Save schedule error:", err);
+      alert(err?.response?.data?.error || "Failed to save schedule");
+    } finally {
+      setScheduleSaving(false);
+    }
   };
 
   const save = async () => {
@@ -929,6 +1092,84 @@ export default function RoutesEditor() {
             adjustments). Click a stop marker on the map to rename, right-click
             to delete.
           </p>
+
+          <div className="schedule-panel">
+            <div className="schedule-header-row">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <strong>Schedule</strong>
+                {scheduleDirty && <span className="pill">Unsaved</span>}
+              </div>
+              <div className="schedule-actions">
+                <button className="btn xs" onClick={addScheduleRow}>
+                  + Add Trip
+                </button>
+                <button
+                  className="btn primary xs"
+                  disabled={scheduleSaving}
+                  onClick={persistSchedule}
+                >
+                  {scheduleSaving ? "Saving…" : "Save Schedule"}
+                </button>
+              </div>
+            </div>
+            <div className="schedule-list">
+              {sortedSchedule.length === 0 ? (
+                <p className="hint" style={{ marginTop: 4 }}>
+                  No trips yet — add departures for this line.
+                </p>
+              ) : (
+                sortedSchedule.map((s) => (
+                  <div key={s.id} className="schedule-row">
+                    <select
+                      value={s.direction}
+                      onChange={(e) =>
+                        updateScheduleRow(s.id, {
+                          direction:
+                            (e.target.value as DirectionKey) === "fro"
+                              ? "fro"
+                              : "to",
+                        })
+                      }
+                    >
+                      <option value="to">to</option>
+                      <option value="fro">fro</option>
+                    </select>
+                    <input
+                      type="time"
+                      value={s.startTime}
+                      onChange={(e) =>
+                        updateScheduleRow(s.id, { startTime: e.target.value })
+                      }
+                      required
+                    />
+                    <span style={{ color: "#666" }}>→</span>
+                    <input
+                      type="time"
+                      value={s.endTime || ""}
+                      onChange={(e) =>
+                        updateScheduleRow(s.id, { endTime: e.target.value })
+                      }
+                    />
+                    <input
+                      type="text"
+                      placeholder="Note / label"
+                      value={s.note || ""}
+                      onChange={(e) =>
+                        updateScheduleRow(s.id, { note: e.target.value })
+                      }
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      className="btn xs danger"
+                      onClick={() => removeScheduleRow(s.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
