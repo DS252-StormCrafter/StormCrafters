@@ -1,11 +1,10 @@
-
- # 🚖 TransVahan — Smart Campus Shuttle Management System
+ # 🚖 TransVahan — Smart CampusTrotter
  
  **TransVahan** is a full-stack, real-time campus shuttle platform connecting **Users**, **Drivers**, and **Administrators**.  
  It provides live shuttle tracking, route editing, occupancy analytics, and predictive ETAs — built using Node.js, React, React Native, Firebase, AWS, and Terraform.
  
  ---
- 
+
  ## 🧭 Project Overview
  
  | Module | Description |
@@ -14,7 +13,7 @@
  | **Admin Portal** | React + Vite dashboard for managing routes, vehicles, and drivers |
  | **User App** | React Native + Expo mobile app (EAS-built APK) |
  | **Infra** | Terraform + AWS (ECR, App Runner, S3 hosting) |
- 
+
  ---
  
  ## ⚙️ 1. Prerequisites
@@ -36,7 +35,7 @@
  
  ```bash
  # Clone repo
- git clone https://github.com/skmanoj2006/StormCrafters.git
+ git clone https://github.com/DS252-StormCrafter/StormCrafters.git
  cd StormCrafters
  
  # 1) Backend env
@@ -61,48 +60,80 @@
 ```
 
  - Create a Firebase Project in the Firebase Console 
- - Go to Project Settings -> Service Accounts -> Generate new private key (Node.js) 
+ - Go to Project Settings --> Service Accounts --> Generate new private key (Node.js) 
  - Save the downloaded file in ```./backend```
+ - Copy the name of the file
+   ## Replace the below variables along with the angular brackets
+ - Replace all the occurances of `<GOOGLE_SERVICE_ACCOUNT>` with the name of the file
+ - Replace all the occurances of `<EMAIL_ID>` with Your email ID
+ - Replace all the occurances of `<EMAIL_PASSWORD>` with your app password (email ID password generated 16 characters)
+ - Replace all the occurances of `<PROJECT_ID>` with your project ID present in downloaded file stored in `./backend`
+ - Replace all the occurances of `<WE_NEED_THIS>` with your Google Maps API Key
+ - Replace all the occurances of `<UNIQUE_BUCKET_NAME>` with your Unique S3 Bucket Name [You have to set this]
+ - Replace all the occurances of `<REGION>` with the AWS Region you are working
 
-  In the ```./backend``` run the following commands
- 
- ```bash
- 
- 
- # JWT Secret (generate one in the previous step)
- sed -i 's|<JWT_SECRET_KEY>|<paste_it_here>|g' .env
- 
- # Gmail SMTP (For OTP services enter a valid e-mail and passkey) 
- sed -i 's|<EMAIL_ID>|<paste_it_here>|g' .env
- sed -i 's|<EMAIL_PASSWORD>|<paste_it_here>|g' .env
- 
- # Firebase 
- sed -i 's|<PROJECT_ID>|<paste_it_here>|g' .env  # Present in downloaded file
- sed -i 's|<GOOGLE_SERVICE_ACCOUNT>.json|<paste_it_here>|g' .env # Name of the file <downloaded.json>
- 
- # Google Maps
- sed -i 's|<WE_NEED_THIS>|<paste_it_here>|g' .env
- 
- #Verify
- grep -v '^#' .env
- 
- ```
-In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
-- Replace <YOUR_GOOGLE_MAPS_KEY> by ur Google maps API key
- 
 
+---
 
 ## 4. Cloud Configuration
+ Run the following command in root directory
  ```bash
- cd ..
  
  aws configure
- # Enter your AWS Access Key, Secret, Region (<REGION>)
+ # Enter your AWS Access Key, Secret, Region (ap-south-1)
+
+```
+#### Make sure you attached all the policies that includes S3 bucket operations and ECR repository
+or
+#### Paste the below AWS Console → IAM → User → Add inline policy → JSON
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ECRRepositoryAndImagePush",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:CreateRepository",
+        "ecr:DescribeRepositories",
+        "ecr:DeleteRepository",
+        "ecr:ListImages",
+        "ecr:DescribeImages",
+        "ecr:BatchGetImage",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ECRGetAuthorizationToken",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3FullAccessForTerraform",
+      "Effect": "Allow",
+      "Action": [
+        "s3:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+
+```
+Run the following command in root directory
  
- 
- aws ecr create-repository --repository-name <unique_repo_name>   # Note this repo name for Step 6
+ ```bash
+ aws ecr create-repository --repository-name <UNIQUE_REPO_NAME>   # Note this repo name for Step 6
  ```
- - In the file ```./infra/terraform.tfvars``` set a unique_bucket_name
 
 
 ## 🧱 5. Infrastructure Deployment (Terraform)
@@ -123,30 +154,31 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
 
 
  ## 🐳 6. Build and Push Backend to AWS ECR
+ Run the following command in `./backend`
  
  ```bash
- cd ../backend
  
  # 1️⃣ Authenticate Docker with AWS ECR
- aws ecr get-login-password --region <REGION> | \
-   docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.<REGION>.amazonaws.com
+ aws ecr get-login-password --region ap-south-1 | \
+   docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com
  
  # 2️⃣ Build the backend Docker image
  docker build -t transvahan-backend:latest .
  
  # 3️⃣ Tag the image for your ECR repository
  docker tag transvahan-backend:latest \
-   <aws_account_id>.dkr.ecr.<REGION>.amazonaws.com/<unique_repo_name>:latest
+   <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<UNIQUE_REPO_NAME>:latest
  
  # 4️⃣ Push the image to ECR
- docker push <aws_account_id>.dkr.ecr.<REGION>.amazonaws.com/<unique_repo_name>:latest
+ docker push <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<UNIQUE_REPO_NAME>:latest
+  
 ```
 
 ## 7. Deploy Backend on AWS App Runner
  - Go to AWS Console → App Runner
  - Create service
  - Choose "Container registry" → "Amazon ECR"
- - Select your uploaded image (<unique_repo_name>)
+ - Select your uploaded image (<UNIQUE_REPO_NAME>)
  - Port: 5001
  - Deployment: Automatic (to redeploy on image push)
  - Service name: transvahan-backend
@@ -154,10 +186,13 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
 
  The above step will take time to deploy
  
- - Once deployed, note down the service URL (e.g. https://abcdefghi.<REGION>.awsapprunner.com)
- - This is ur <APP_RUNNER_BACKEND_URL> 
- - And make sure that what ever u have copied looks like this abcdefghi.<REGION>.awsapprunner.com
+ - Once deployed, note down the service URL (e.g. https://abcdefghi.ap-south-1.awsapprunner.com)
+ - This is ur `<APP_RUNNER_BACKEND_URL>` 
 
+ - And make sure that what ever u have copied looks like this `abcdefghi.ap-south-1.awsapprunner.com`
+
+ - Replace all the occurances of `<APP_RUNNER_BACKEND_URL>` and `<NGROK_BACKEND_URL>` with url you copied 
+ 
  ### Health Check
  ```bash
  
@@ -166,21 +201,9 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
  # Should Return {"ok": true}
 ```
 
-## 🧩 8. Environment Variables Setup -2 (Admin Portal)
 
-In the ```./admin-portal``` run the following commands
- ```bash
- cd admin-portal
 
- # Replace App Runner backend URL
- sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
- 
- # Replace Google Maps API key
- sed -i 's|<YOUR_GOOGLE_MAPS_KEY>|<paste_it_here>|g' .env
-
- ```
-
- ## 🌐 9. Build and Deploy Admin Portal
+ ## 🌐 8. Build and Deploy Admin Portal
  In the ```./admin-portal``` run the following commands
 
  ```bash
@@ -188,41 +211,19 @@ In the ```./admin-portal``` run the following commands
  npm run build
  
  # Upload to the Terraform-created bucket
-BUCKET_NAME=$(terraform output -raw admin_portal_bucket_name)
-aws s3 sync dist/ s3://$BUCKET_NAME --delete
+aws s3 sync dist/ s3://<UNIQUE_BUCKET_NAME> --delete
 ```
 You can now access your admin portal via the website endpoint printed by Terraform.
 
 
-## 📱 10. Environment Variables Setup -3 (Mobile App)
- In `/transvahan-user` directory run the following commands
- 
- ```bash
- 
- 
- # Replace the API Base URL (App Runner backend endpoint)
- sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
- 
- # Replace the Google Maps API key
- sed -i 's|<YO<WE_NEED_THIS>>|<paste_it_here>|g' .env
- 
- # Verify 
- grep -v '^#' .env
- ```
- Also open `transvahan-user/eas.json` and set:
-```bash
-"env": {
-  "API_BASE_URL": "https://<APP_RUNNER_BACKEND_URL>",
-  "WS_URL": "wss://<APP_RUNNER_BACKEND_URL>/ws",
-  "USE_MOCK": "false",
-  "GOOGLE_MAPS_API_KEY": "<your_maps_key>"
-}
-```
-
- ## 11. Build Mobile App (APK)
+ ## 9. Build Mobile App (APK)
 
  - Create an account in `https://expo.dev/` 
  - The above Credentials will be used in `eas login`
+ - Click on Create a Project and set a Display Name and you will get the corresponding SLUG.
+ - Copy the Display Name, SLUG and ProjectId you get after creating the project.
+ - Paste the above copied info in `transvahan-user/app.config.ts`, precisely, `name: "<PASTE_YOUR_APP_NAME>", slug: "<PASTE_YOUR_APP_SLUG>",` projectId:"<PASTE_YOUR_PROJECT_ID>"
+
  ```bash
  # Ensure EAS CLI is installed
 npm install -g eas-cli
@@ -230,20 +231,14 @@ npm install -g eas-cli
 cd transvahan-user
 eas login
 
-# First build attempt
 eas build --platform android --profile production
-
-# If you see "Missing eas.projectId":
-# Open transvahan-user/app.config.ts and add:
-# eas: { projectId: "your-eas-project-id" },
-
-# Then rebuild
-eas build --platform android --profile production
-
+# answer yes for all questions asked
+# A link will be produces with .apk in the end 
+# You can download the apk version of the app or you can download it in the next step
 
  ```
 
- ## 📲 12. Download and Install the APK
+ ## 📲 10. Download and Install the APK
 
 After the build completes, visit the EAS dashboard link printed in your terminal, or list your builds:
 ```bash
@@ -254,8 +249,6 @@ Download the .apk, install it on your Android device, and enjoy your working Tra
  
 
  ## ✅ Quick Reference
-
- ### ✅ Quick Reference
 
 | Step | Purpose | Command |
 |------|----------|----------|
@@ -271,12 +264,9 @@ Download the .apk, install it on your Android device, and enjoy your working Tra
 
 ---
 
-**Author:** Team StormCrafters  
-**Region:** `<REGION>`  
+**Authors:** Team StormCrafters  
+**Region:** `ap-south-1`  
 **Stack:** Node.js • React • React Native • Firebase • AWS • Terraform  
 **Version:** 1.0.0
 
 ---
- 
- 
- 
