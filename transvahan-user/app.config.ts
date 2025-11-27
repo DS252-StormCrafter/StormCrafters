@@ -48,7 +48,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       USE_MOCK: useMock,
       GOOGLE_MAPS_API_KEY: googleMapsKey,
       eas: {
-        projectId: "<PASTE_YOUR_EAS_PROJECT_ID>",
+        projectId: "<PASTE_YOUR_PROJECT_ID>",
       },
     },
   };
