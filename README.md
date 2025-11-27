@@ -64,6 +64,7 @@
  - Save the downloaded file in ```./backend```
  - Copy the name of the file
    ## Replace the below variables along with the angular brackets
+ - Replace all the occurances of `<JWT_SECRET_KEY>` with the generated key from the previous bash command
  - Replace all the occurances of `<GOOGLE_SERVICE_ACCOUNT>` with the name of the file
  - Replace all the occurances of `<EMAIL_ID>` with Your email ID
  - Replace all the occurances of `<EMAIL_PASSWORD>` with your app password (email ID password generated 16 characters)
