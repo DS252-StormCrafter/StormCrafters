@@ -18,7 +18,7 @@ dotenv.config({ path: path.resolve(__dirname, "./.env") });
 // -----------------------------
 const serviceAccountPath = path.resolve(
   process.cwd(),
-  process.env.GOOGLE_APPLICATION_CREDENTIALS || "./midterm-transvahan-firebase-adminsdk-fbsvc-f78f96cb89.json"
+  process.env.GOOGLE_APPLICATION_CREDENTIALS || "./midterm-transvahan-firebase-adminsdk-fbsvc-3739b2b278.json"
 );
 
 if (!fs.existsSync(serviceAccountPath)) {

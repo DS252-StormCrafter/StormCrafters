@@ -9,7 +9,7 @@ transvahan-user/package-lock.json
 cloud-chat
 docs
 transvahan-user/.expo   
-
+backend/seedRoutes.js
 infra/.terraform
 infra/.terraform.lock.hcl
 

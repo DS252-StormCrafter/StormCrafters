@@ -8,7 +8,7 @@ dotenv.config();
 if (process.env.FIRESTORE_EMULATOR_HOST) {
   console.log(`🔥 Using Firestore Emulator at ${process.env.FIRESTORE_EMULATOR_HOST}`);
   admin.initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID || "demo-transvahan",
+    projectId: process.env.FIREBASE_PROJECT_ID || "",
   });
 } else {
   console.log("⚙️ Using live Firestore project");
