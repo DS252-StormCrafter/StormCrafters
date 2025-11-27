@@ -1,6 +1,6 @@
 variable "aws_region" {
   type    = string
-  default = "ap-south-1"
+  default = "<REGION>"
 }
 
 variable "aws_profile" {

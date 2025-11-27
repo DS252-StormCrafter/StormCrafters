@@ -70,18 +70,18 @@
  
  
  # JWT Secret (generate one in the previous step)
- sed -i 's|your_jwt_secret_key|<paste_it_here>|g' .env
+ sed -i 's|<JWT_SECRET_KEY>|<paste_it_here>|g' .env
  
  # Gmail SMTP (For OTP services enter a valid e-mail and passkey) 
- sed -i 's|ur_email|<paste_it_here>|g' .env
- sed -i 's|ur_app_password|<paste_it_here>|g' .env
+ sed -i 's|<EMAIL_ID>|<paste_it_here>|g' .env
+ sed -i 's|<EMAIL_PASSWORD>|<paste_it_here>|g' .env
  
  # Firebase 
- sed -i 's|ur_project_id|<paste_it_here>|g' .env  # Present in downloaded file
- sed -i 's|ur_service_account_key_file.json|<paste_it_here>|g' .env # Name of the file <downloaded.json>
+ sed -i 's|<PROJECT_ID>|<paste_it_here>|g' .env  # Present in downloaded file
+ sed -i 's|<GOOGLE_SERVICE_ACCOUNT>.json|<paste_it_here>|g' .env # Name of the file <downloaded.json>
  
  # Google Maps
- sed -i 's|ur_google_maps_api_key|<paste_it_here>|g' .env
+ sed -i 's|<WE_NEED_THIS>|<paste_it_here>|g' .env
  
  #Verify
  grep -v '^#' .env
@@ -97,7 +97,7 @@ In the ```./admin-portal/src/components/RouteMapEditor.tsx``` edit line 47
  cd ..
  
  aws configure
- # Enter your AWS Access Key, Secret, Region (ap-south-1)
+ # Enter your AWS Access Key, Secret, Region (<REGION>)
  
  
  aws ecr create-repository --repository-name <unique_repo_name>   # Note this repo name for Step 6
@@ -128,18 +128,18 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
  cd ../backend
  
  # 1️⃣ Authenticate Docker with AWS ECR
- aws ecr get-login-password --region ap-south-1 | \
-   docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com
+ aws ecr get-login-password --region <REGION> | \
+   docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.<REGION>.amazonaws.com
  
  # 2️⃣ Build the backend Docker image
  docker build -t transvahan-backend:latest .
  
  # 3️⃣ Tag the image for your ECR repository
  docker tag transvahan-backend:latest \
-   <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<unique_repo_name>:latest
+   <aws_account_id>.dkr.ecr.<REGION>.amazonaws.com/<unique_repo_name>:latest
  
  # 4️⃣ Push the image to ECR
- docker push <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<unique_repo_name>:latest
+ docker push <aws_account_id>.dkr.ecr.<REGION>.amazonaws.com/<unique_repo_name>:latest
 ```
 
 ## 7. Deploy Backend on AWS App Runner
@@ -154,9 +154,9 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
 
  The above step will take time to deploy
  
- - Once deployed, note down the service URL (e.g. https://abcdefghi.ap-south-1.awsapprunner.com)
+ - Once deployed, note down the service URL (e.g. https://abcdefghi.<REGION>.awsapprunner.com)
  - This is ur <APP_RUNNER_BACKEND_URL> 
- - And make sure that what ever u have copied looks like this abcdefghi.ap-south-1.awsapprunner.com
+ - And make sure that what ever u have copied looks like this abcdefghi.<REGION>.awsapprunner.com
 
  ### Health Check
  ```bash
@@ -204,7 +204,7 @@ You can now access your admin portal via the website endpoint printed by Terrafo
  sed -i 's|<APP_RUNNER_BACKEND_URL>|<paste_it_here>|g' .env
  
  # Replace the Google Maps API key
- sed -i 's|<YOUR_GOOGLE_MAPS_API_KEY>|<paste_it_here>|g' .env
+ sed -i 's|<YO<WE_NEED_THIS>>|<paste_it_here>|g' .env
  
  # Verify 
  grep -v '^#' .env
@@ -272,7 +272,7 @@ Download the .apk, install it on your Android device, and enjoy your working Tra
 ---
 
 **Author:** Team StormCrafters  
-**Region:** `ap-south-1`  
+**Region:** `<REGION>`  
 **Stack:** Node.js • React • React Native • Firebase • AWS • Terraform  
 **Version:** 1.0.0
 

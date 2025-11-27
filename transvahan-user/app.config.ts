@@ -10,8 +10,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
-    name: "Transvahan User",
-    slug: "<Paste_your_app_slug_here>",
+    name: "<PASTE_YOUR_APP_NAME>",
+    slug: "<PASTE_YOUR_APP_SLUG>",
 
     // App versioning for stores / installation
     version: config.version ?? "1.0.0",
@@ -48,7 +48,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       USE_MOCK: useMock,
       GOOGLE_MAPS_API_KEY: googleMapsKey,
       eas: {
-        projectId: "<paste-your-eas-project-id>",
+        projectId: "<PASTE_YOUR_EAS_PROJECT_ID>",
       },
     },
   };

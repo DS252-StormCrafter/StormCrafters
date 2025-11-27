@@ -11,8 +11,8 @@ import { API, LoginRequest, LoginResponse } from "./types";
 import { Route, Vehicle, NextArrival } from "../types";
 import { wsConnect } from "./ws";
 
-const NGROK_BACKEND = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
-const LOCAL_API_URL = "http://localhost:5001";
+const NGROK_BACKEND = "https://<NGROK_BACKEND_URL>";
+const LOCAL_API_URL = "http://<APP_RUNNER_BACKEND_URL>";
 
 const API_BASE_URL =
   NGROK_BACKEND && NGROK_BACKEND.trim() !== ""

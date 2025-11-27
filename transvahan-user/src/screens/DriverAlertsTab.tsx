@@ -12,7 +12,7 @@ import {
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_BASE_URL = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
+const API_BASE_URL = "https://<NGROK_BACKEND_URL>";
 // ✅ Add role hint to WebSocket URL
 const WS_URL = API_BASE_URL.replace(/^http/, "ws") + "/ws?role=driver";
 

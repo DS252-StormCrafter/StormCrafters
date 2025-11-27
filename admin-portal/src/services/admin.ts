@@ -8,7 +8,7 @@ const rawEnv =
   (import.meta as any)?.env?.VITE_API_BASE &&
   String((import.meta as any).env.VITE_API_BASE).trim();
 
-const DEFAULT_LOCAL = "https://derick-unmentionable-overdistantly.ngrok-free.dev";
+const DEFAULT_LOCAL = "https://<NGROK_BACKEND_URL>";
 
 const API_BASE = rawEnv && rawEnv.length > 0 ? rawEnv : DEFAULT_LOCAL;
 const IS_NGROK = /ngrok/i.test(API_BASE);

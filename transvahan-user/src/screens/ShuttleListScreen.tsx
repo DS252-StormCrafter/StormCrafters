@@ -8,7 +8,7 @@ import { Vehicle } from "../types";
 
 const API =
   (Constants as any).expoConfig?.extra?.API_BASE_URL ||
-  "https://derick-unmentionable-overdistantly.ngrok-free.dev";
+  "https://<NGROK_BACKEND_URL>";
 
 export default function ShuttleListScreen() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
