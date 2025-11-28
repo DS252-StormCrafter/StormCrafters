@@ -5,6 +5,24 @@
  
  ---
 
+## 👨‍💻 Project Details & Team
+
+* **Course:** DS252 Introduction to Cloud Computing (August 2025 Semester)
+* **Team Name:** StormCrafters
+* **Git Repository:** https://github.com/DS252-StormCrafter/StormCrafters.git
+
+| Team Member | Email ID |
+| :--- | :--- |
+| **JS Vishnu Teja** | vishnutejas@iisc.ac.in |
+| **K Bhargav Sashank** | bhargavsk@iisc.ac.in |
+| **YRS Aakanksha** | aakankshay@iisc.ac.in |
+| **Kunjan Manoj Kumar S** | manojkumark@iisc.ac.in |
+
+**Acknowledgement:**
+This project involved the extensive use of AI agents and coding assistants (such as Chantgpt, Gemini, etc.) for generating boilerplate code, debugging assistance, and clarifying complex API/Cloud configuration steps.
+
+---
+
  ## 🧭 Project Overview
  
  | Module | Description |
@@ -15,6 +33,7 @@
  | **Infra** | Terraform + AWS (ECR, App Runner, S3 hosting) |
 
  ---
+ 
  
  ## ⚙️ 1. Prerequisites
  
