@@ -1,11 +1,11 @@
- # 🚖 TransVahan — Smart CampusTrotter
+ # TransVahan — Smart CampusTrotter
  
  **TransVahan** is a full-stack, real-time campus shuttle platform connecting **Users**, **Drivers**, and **Administrators**.  
  It provides live shuttle tracking, route editing, occupancy analytics, and predictive ETAs — built using Node.js, React, React Native, Firebase, AWS, and Terraform.
  
  ---
 
-## 👨‍💻 Project Details & Team
+## Project Details & Team
 
 * **Course:** DS252 Introduction to Cloud Computing (August 2025 Semester)
 * **Team Name:** StormCrafters
@@ -19,11 +19,77 @@
 | **Kunjan Manoj Kumar S** | manojkumark@iisc.ac.in |
 
 **Acknowledgement:**
-This project involved the extensive use of AI agents and coding assistants (such as Chantgpt, Gemini, etc.) for generating boilerplate code, debugging assistance, and clarifying complex API/Cloud configuration steps.
+This project involved the extensive use of AI agents and coding assistants (such as Chatgpt, Gemini, etc.) for generating boilerplate code, debugging assistance, and clarifying complex API/Cloud configuration steps.
+ 
+ ---
+
+## What TransVahan delivers
+- **Automated live ops**: Drivers push telemetry; users see buses live with seats and ETAs; admins monitor everything in real time.
+- **Role-based experiences**: Single mobile app with user/driver modes; dedicated admin portal for operations.
+- **Data-driven insights**: Trip synthesis, reservation aging, analytics/reports endpoints, and alerts keep stakeholders informed.
+- **Cloud native**: Containerized backend on AWS App Runner, static admin portal on S3, Firestore as the single source of truth.
 
 ---
 
- ## 🧭 Project Overview
+## Architecture at a Glance
+
+```mermaid
+flowchart LR
+  subgraph Clients
+    Mobile[User & Driver App\nReact Native + Expo]
+    AdminUI[Admin Portal\nReact + Vite]
+  end
+
+  Mobile -- REST + WebSocket --> Backend[Backend API\nExpress + Firebase Admin]
+  AdminUI -- REST --> Backend
+
+  Backend -- read/write --> Firestore[(Firestore)]
+  Backend -- background jobs --> Jobs[TripSynthesizer\nReservationReaper]
+  Backend -- container image --> AppRunner[AWS App Runner\nfrom ECR]
+  AdminUI -- static site --> S3[S3 Static Hosting]
+```
+
+**How it fits together**
+- **Clients:** Mobile (user + driver) and Admin portal.
+- **Backend API:** Express REST + WebSocket server (App Runner) using Firebase Admin.
+- **Data:** Firestore stores auth, routes/stops, vehicles, reservations, alerts, feedback, trip summaries.
+- **Jobs:** `TripSynthesizer` builds `trip_summary`; `ReservationReaper` expires stale reservations and broadcasts updates.
+
+**Primary data flows**
+1) Driver telemetry → `/driver/telemetry` → Firestore → WebSocket `vehicle` broadcasts to mobile/admin UIs (~1.5s).
+2) User planner/ETA requests → backend computes from routes/stops/reservations → responds with schedules/ETA summaries.
+3) Admin CRUD (drivers/vehicles/routes/assignments/alerts) → backend writes Firestore → emits WebSocket updates to keep UIs in sync.
+4) Background jobs → write `trip_summary` and `reservation_update` events → consumed by reports/analytics and live demand indicators.
+
+---
+
+## Key Features
+
+- **User & Driver App (React Native + Expo)**
+  - OTP-based signup/login with password reset.
+  - Live map with WebSocket vehicle feed, colored lines, and Google Maps-powered search/planner.
+  - Stop-aware schedule view, ETA summaries, alerts inbox, and feedback submission.
+  - Driver mode for telemetry push, occupancy +/- controls, and viewing active assignments.
+
+- **Admin Portal (React + Vite)**
+  - Admin JWT auth, driver CRUD, and vehicle CRUD (capacity/status/route/direction).
+  - Route editor and driver-to-vehicle/route assignments.
+  - Notifications/alerts creation & resolution.
+  - Reports page consuming `/reports/*` (summary, temporal, geo, driver, anomaly, forecast) plus basic analytics.
+
+- **Backend (Node.js + Express + Firestore)**
+  - JWT-secured APIs, CORS hardening, and OTP email delivery via Nodemailer.
+  - Reservation summaries, ETA endpoints, planner and stop discovery, live telemetry ingestion, and feedback storage.
+  - WebSocket broadcasting for vehicles/reservations/alerts; background `TripSynthesizer` and `ReservationReaper`.
+
+- **Infrastructure**
+  - Backend container built from `backend/Dockerfile`, pushed to AWS ECR, and run on App Runner.
+  - Admin portal hosted from an S3 static website bucket provisioned via Terraform (`infra`).
+  - Firebase service account (Firestore) and Google Maps API key configured via `.env`.
+
+---
+
+ ## Project Overview
  
  | Module | Description |
  |--------|-------------|
@@ -31,11 +97,11 @@ This project involved the extensive use of AI agents and coding assistants (such
  | **Admin Portal** | React + Vite dashboard for managing routes, vehicles, and drivers |
  | **User App** | React Native + Expo mobile app (EAS-built APK) |
  | **Infra** | Terraform + AWS (ECR, App Runner, S3 hosting) |
-
+ 
  ---
  
  
- ## ⚙️ 1. Prerequisites
+ ## 1. Prerequisites
  
  Install the following tools (latest stable versions recommended):
  
@@ -50,7 +116,7 @@ This project involved the extensive use of AI agents and coding assistants (such
  
  ---
  
- ## 🌍 2. Repository Setup
+ ## 2. Repository Setup
  
  ```bash
  # Clone repo
@@ -72,7 +138,7 @@ This project involved the extensive use of AI agents and coding assistants (such
  ```
  
  
- ## ⚡ 3. Backend Environment Setup
+ ## 3. Backend Environment Setup
  Generate a JWT_SECRET_KEY
  ```bash
  head -c 32 /dev/urandom | base64
@@ -93,9 +159,10 @@ This project involved the extensive use of AI agents and coding assistants (such
  - Replace all the occurances of `<REGION>` with the AWS Region you are working
 
 
+
 ---
 
-## 4. Cloud Configuration
+## 4. Cloud Configuration (AWS)
  Run the following command in root directory
  ```bash
  
@@ -156,7 +223,7 @@ Run the following command in root directory
  ```
 
 
-## 🧱 5. Infrastructure Deployment (Terraform)
+## 5. Infrastructure Deployment (Terraform)
  In ```./infra``` run the below commands
  ```bash
  
@@ -173,23 +240,23 @@ Run the following command in root directory
 If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``` with a globally unique bucket name and rerun terraform apply.
 
 
- ## 🐳 6. Build and Push Backend to AWS ECR
+ ## 6. Build and Push Backend to AWS ECR
  Run the following command in `./backend`
  
  ```bash
  
- # 1️⃣ Authenticate Docker with AWS ECR
+ # 1) Authenticate Docker with AWS ECR
  aws ecr get-login-password --region ap-south-1 | \
    docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com
  
- # 2️⃣ Build the backend Docker image
+ # 2) Build the backend Docker image
  docker build -t transvahan-backend:latest .
  
- # 3️⃣ Tag the image for your ECR repository
+ # 3) Tag the image for your ECR repository
  docker tag transvahan-backend:latest \
    <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<UNIQUE_REPO_NAME>:latest
  
- # 4️⃣ Push the image to ECR
+ # 4) Push the image to ECR
  docker push <aws_account_id>.dkr.ecr.ap-south-1.amazonaws.com/<UNIQUE_REPO_NAME>:latest
   
 ```
@@ -207,11 +274,11 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
  The above step will take time to deploy
  
  - Once deployed, note down the service URL (e.g. https://abcdefghi.ap-south-1.awsapprunner.com)
- - This is ur `<APP_RUNNER_BACKEND_URL>` 
+ - This is ur `localhost:5001` 
 
  - And make sure that what ever u have copied looks like this `abcdefghi.ap-south-1.awsapprunner.com`
 
- - Replace all the occurances of `<APP_RUNNER_BACKEND_URL>` and `<NGROK_BACKEND_URL>` with url you copied 
+ - Replace all the occurances of `localhost:5001` and `derick-unmentionable-overdistantly.ngrok-free.dev` with url you copied 
  
  ### Health Check
  ```bash
@@ -223,7 +290,7 @@ If you get a “BucketAlreadyExists” error, edit ```./infra/terraform.tfvars``
 
 
 
- ## 🌐 8. Build and Deploy Admin Portal
+ ## 8. Build and Deploy Admin Portal
  In the ```./admin-portal``` run the following commands
 
  ```bash
@@ -258,7 +325,7 @@ eas build --platform android --profile production
 
  ```
 
- ## 📲 10. Download and Install the APK
+ ## 10. Download and Install the APK
 
 After the build completes, visit the EAS dashboard link printed in your terminal, or list your builds:
 ```bash
@@ -268,7 +335,7 @@ eas build:list
 Download the .apk, install it on your Android device, and enjoy your working TransVahan app 🚖
  
 
- ## ✅ Quick Reference
+ ## Quick Reference
 
 | Step | Purpose | Command |
 |------|----------|----------|
